@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/
+
+# Go
+collector/bin/
+*.test
+
+# SigNoz / docker local state
+# casting.yaml (the deploy spec) IS committed; generated artifacts are not.
+signoz/pours/
+signoz/casting.yaml.lock
+signoz-data/
+*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
