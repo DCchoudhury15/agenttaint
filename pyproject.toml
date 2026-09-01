@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agenttaint"
+version = "0.1.0"
+description = "Runtime enforcement of the AgentRaft Data Over-Exposure model on OpenTelemetry + SigNoz"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Divyanshu Choudhury" }]
+
+# Phase 1 has no runtime deps — core/doe.py is pure stdlib.
+# Runtime deps are added per phase as the SDK/collector land.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[tool.setuptools]
+packages = ["core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
