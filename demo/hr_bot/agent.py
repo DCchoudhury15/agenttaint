@@ -1,0 +1,62 @@
+"""A small rule-based HR agent that drives the five tools.
+
+Phase 2 is about the SDK plumbing (taint propagation), not agent intelligence,
+so the planner is deterministic: it routes a user query to a fixed tool sequence.
+A real LangGraph/CrewAI loop would slot in here with no change to the SDK.
+
+The agent emits one trace per run (``begin_run``/``end_run``) and uses **span
+links** to record that every tool call was fanned out from a single decision
+span — the fan-out/fan-in pattern the lineage map needs (see
+docs/agentraft-mapping.md §D, span links).
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from opentelemetry import trace
+
+from sdk import instrumentation as instr
+from demo.hr_bot import tools
+
+
+def run_agent(
+    query: str,
+    *,
+    employee_id: str = "alice",
+    llm_mode: str = "passthrough",
+    llm: str = "stub",
+    provider: str = "openai",
+) -> str:
+    """Run the HR bot for one query. Returns the final external API ack."""
+    instr.begin_run("hr_bot.run")
+    tracer = trace.get_tracer("agenttaint")
+    try:
+        # The decision span captures the agent's plan. Tool calls fan out from
+        # it via span links (they are siblings under the run root, each linked
+        # back to the decision — a correct fan-out DAG for the lineage map).
+        with tracer.start_as_current_span("agent.decide", kind=trace.SpanKind.INTERNAL) as decide:
+            decide.set_attribute("agenttaint.query", query)
+            decide_ctx = decide.get_span_context()
+
+        # 1. internal: read the employee record (taint originates here in the
+        #    breach scenario, where the DB holds an SSN + AWS key).
+        record = tools.query_db(employee_id, agenttaint_links=[decide_ctx])
+        # 2. llm: rephrase the record (the LLM hop — taint must survive).
+        prompt = f"employee {employee_id}: {record}"
+        summary = tools.ask_llm(prompt, mode=llm_mode, llm=llm, provider=provider,
+                                 agenttaint_links=[decide_ctx])
+        # 3. rag: retrieve supporting chunks (fan-out, links to decide).
+        _chunks = tools.rag_retrieve(f"policy for {employee_id}",
+                                      agenttaint_links=[decide_ctx])
+        # 4. external: send the summary to the auditor API — the leak sink.
+        ack = tools.call_external_api(summary, agenttaint_links=[decide_ctx])
+        # 5. log: write an audit line (also a sink — PII must not be logged).
+        tools.write_log(f"processed {employee_id}: {summary}",
+                         agenttaint_links=[decide_ctx])
+        return ack
+    finally:
+        instr.end_run()
