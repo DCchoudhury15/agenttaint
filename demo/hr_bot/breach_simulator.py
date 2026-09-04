@@ -39,6 +39,9 @@ def seed_breach() -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="AgentTaint HR bot breach simulator")
     ap.add_argument("--service", default="agenttaint-hr-bot")
+    ap.add_argument("--endpoint", default=instr.DEFAULT_OTLP_HTTP,
+                    help="OTLP/HTTP endpoint (default: SigNoz direct; point at the "
+                         "Phase 3 sidecar at http://localhost:4319/v1/traces)")
     ap.add_argument("--console", action="store_true", help="also export spans to stdout")
     ap.add_argument("--llm", choices=["stub", "real"], default="stub")
     ap.add_argument("--provider", choices=["openai", "anthropic"], default="openai")
@@ -46,7 +49,7 @@ def main() -> int:
                     default="passthrough", help="stub LLM transformation mode")
     args = ap.parse_args()
 
-    instr.configure_tracing(args.service, console=args.console)
+    instr.configure_tracing(args.service, endpoint=args.endpoint, console=args.console)
     seed_breach()
 
     print("=== breach simulator: injected SSN + AWS key into HR DB ===")
