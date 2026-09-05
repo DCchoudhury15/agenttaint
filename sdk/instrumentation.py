@@ -65,6 +65,10 @@ ATTR_TaintSource = "agenttaint.taint.source_span"  # noqa: N816 - keep readable
 # (the Phase 2 behavior, for when no sidecar is present).
 import os as _os
 MASK_IN_PROCESS = _os.environ.get("AGENTTAINT_MASK_IN_SDK", "1") != "0"
+# DLP simulation mode (Phase 6): log the violation but DON'T redact args — an
+# audit/dry-run for safe rollout (see what would be flagged before enforcing).
+# When set, raw args flow to the tool and a agenttaint.dry_run=true attr is set.
+DRY_RUN = _os.environ.get("AGENTTAINT_DRY_RUN", "") != ""
 
 
 def configure_tracing(
@@ -146,8 +150,12 @@ def instrument_tool(
             # external/llm/log/rag -> non-reversible mask. The tool operates on
             # redacted data, so raw PII never reaches the sink. The collector
             # remains the authoritative policy decider + redaction backstop.
-            redacted_args = [redact_payload(a, destination) for a in args]
-            redacted_kwargs = {k: redact_payload(v, destination) for k, v in kwargs.items()}
+            # DLP simulation mode (DRY_RUN) skips redaction (audit-only).
+            if DRY_RUN:
+                redacted_args, redacted_kwargs = list(args), dict(kwargs)
+            else:
+                redacted_args = [redact_payload(a, destination) for a in args]
+                redacted_kwargs = {k: redact_payload(v, destination) for k, v in kwargs.items()}
 
             merged_in = (incoming or tnt.TaintLabel.of(set())).merge(input_label)
             # Attach merged taint to the context so nested calls inherit it.
@@ -178,6 +186,8 @@ def instrument_tool(
                     span.set_attribute(ATTR_TaintSource, merged_in.source_span_id or "")
                 span.set_attribute(ATTR_DEST, destination)
                 span.set_attribute(ATTR_JURISDICTION, jurisdiction)
+                if DRY_RUN:
+                    span.set_attribute("agenttaint.dry_run", True)
 
                 try:
                     result = fn(*redacted_args, **redacted_kwargs)
