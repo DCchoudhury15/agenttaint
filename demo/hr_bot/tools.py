@@ -36,6 +36,20 @@ def query_db(employee_id: str) -> dict:
     return _DB.get(employee_id, {"error": f"no record for {employee_id}"})
 
 
+# In-process "internal cache" — written by internal_store (Phase 4 demo).
+_INTERNAL_CACHE: dict[str, dict] = {}
+
+
+@instr.instrument_tool("internal_store", destination=instr.DEST_INTERNAL)
+def internal_store(key: str, record: dict) -> str:
+    """Write a record to the trusted internal cache. Because this is an
+    INTERNAL sink, the SDK egress gate redacts sensitive fields in the
+    ``record`` arg to REVERSIBLE FPE tokens before this tool runs — the cache
+    holds tokens, not raw PII, yet they can be reversed by the redactor."""
+    _INTERNAL_CACHE[key] = record
+    return f"stored {key} ({len(record)} fields, redacted)"
+
+
 @instr.instrument_tool("ask_llm", destination=instr.DEST_LLM, jurisdiction="us")
 def ask_llm(prompt: str, *, mode: str = "passthrough",
             llm: str = "stub", provider: str = "openai") -> str:

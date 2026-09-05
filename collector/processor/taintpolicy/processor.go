@@ -206,6 +206,14 @@ func redactSpan(attrs pcommon.Map) {
 	type kv struct{ k, v string }
 	var pending []kv
 	attrs.Range(func(k string, v pcommon.Value) bool {
+		// The SDK egress gate already redacts gen_ai.tool.call.arguments
+		// (Phase 4: reversible FPE for internal, mask for egress). Re-redacting
+		// here would mask the format-preserving tokens (they match PII regexes)
+		// and destroy reversibility in observability. The collector stays the
+		// backstop for the result attr and any other residual string attrs.
+		if k == "gen_ai.tool.call.arguments" {
+			return true
+		}
 		if v.Type() == pcommon.ValueTypeStr {
 			if masked, changed := maskPII(v.Str()); changed {
 				pending = append(pending, kv{k, masked})
