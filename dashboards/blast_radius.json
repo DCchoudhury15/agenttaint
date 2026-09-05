@@ -1,0 +1,20 @@
+{
+  "name": "AgentTaint — Blast radius (who else saw it)",
+  "description": "For each tainted run, how many distinct tools/destinations the sensitive data reached — the GDPR Art. 30 disclosure-recipients / Art. 15 access surface. A run that touched external+llm+log has a larger blast radius than one that stayed internal.",
+  "datasource": "signoz_traces.distributed_signoz_index_v3",
+  "queries": [
+    {
+      "title": "Blast radius per trace (distinct tools + destinations touched by the taint)",
+      "sql": "SELECT trace_id, uniqExact(name) AS tools_touched, uniqExact(attributes_string['agenttaint.destination']) AS distinct_destinations, groupArrayDistinct(attributes_string['agenttaint.destination']) AS destinations, countIf(attributes_bool['agenttaint.policy.violation'] = 1) AS violations, countIf(attributes_bool['agenttaint.policy.transfer_violation'] = 1) AS cross_border_transfers FROM signoz_traces.distributed_signoz_index_v3 WHERE serviceName = 'agenttaint-hr-bot' AND attributes_bool['agenttaint.sensitive'] = 1 GROUP BY trace_id ORDER BY violations DESC"
+    },
+    {
+      "title": "Top leak surfaces (destination classes that most often receive tainted data)",
+      "sql": "SELECT attributes_string['agenttaint.destination'] AS destination, count() AS tainted_spans, countIf(attributes_bool['agenttaint.policy.violation'] = 1) AS violations FROM signoz_traces.distributed_signoz_index_v3 WHERE serviceName = 'agenttaint-hr-bot' AND attributes_bool['agenttaint.sensitive'] = 1 GROUP BY destination ORDER BY violations DESC"
+    },
+    {
+      "title": "Cross-border transfers (Art. 44) by jurisdiction",
+      "sql": "SELECT attributes_string['agenttaint.jurisdiction'] AS jurisdiction, attributes_string['agenttaint.destination'] AS destination, count() AS transfer_violations FROM signoz_traces.distributed_signoz_index_v3 WHERE serviceName = 'agenttaint-hr-bot' AND attributes_bool['agenttaint.policy.transfer_violation'] = 1 GROUP BY jurisdiction, destination ORDER BY transfer_violations DESC"
+    }
+  ],
+  "notes": "Blast radius = Art. 30 disclosure recipients + Art. 15 access scope, derived from the live taint graph. DLP 'sequence detection' (collection -> evasion -> exfil) reduces to this same blast-radius view."
+}

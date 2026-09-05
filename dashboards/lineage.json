@@ -1,0 +1,16 @@
+{
+  "name": "AgentTaint — Lineage (where the data went)",
+  "description": "GDPR Art. 30 record built from runtime data flow: for each tainted span, the tool it reached, the destination class, the taint classes, and the jurisdiction. Ordered by trace so each run reads as a path. This is the 'lineage map' that replaces a stale RoPA spreadsheet with live, runtime-derived evidence.",
+  "datasource": "signoz_traces.distributed_signoz_index_v3",
+  "queries": [
+    {
+      "title": "Tainted span path per run",
+      "sql": "SELECT trace_id, name AS tool, attributes_string['agenttaint.destination'] AS destination, attributes_string['agenttaint.jurisdiction'] AS jurisdiction, attributes_string['agenttaint.taint.classes'] AS taint_classes, attributes_string['agenttaint.policy.reasons'] AS policy_reasons, attributes_bool['agenttaint.policy.violation'] AS violation, attributes_bool['agenttaint.policy.transfer_violation'] AS transfer, timestamp FROM signoz_traces.distributed_signoz_index_v3 WHERE serviceName = 'agenttaint-hr-bot' AND attributes_bool['agenttaint.sensitive'] = 1 ORDER BY trace_id, timestamp"
+    },
+    {
+      "title": "Distinct destinations touched per trace (the path shape)",
+      "sql": "SELECT trace_id, groupArrayDistinct(attributes_string['agenttaint.destination']) AS destinations, count() AS tainted_spans FROM signoz_traces.distributed_signoz_index_v3 WHERE serviceName = 'agenttaint-hr-bot' AND attributes_bool['agenttaint.sensitive'] = 1 GROUP BY trace_id ORDER BY trace_id"
+    }
+  ],
+  "notes": "Import: create these as SigNoz dashboard panels (UI or signoz_create_dashboard MCP) pointed at the signoz_traces datasource. The first panel IS an Article 30 recipients/transfer record, from runtime data flow not a stale spreadsheet."
+}
