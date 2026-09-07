@@ -37,17 +37,16 @@ from opentelemetry import baggage, context as context_api, trace
 
 from sdk import taint as tnt
 from sdk.detect import detect_mapping, mask_value, taint_for
+from sdk.redact import redact_payload
 
 logger = logging.getLogger("agenttaint.sdk")
 
 DEFAULT_OTLP_HTTP = "http://localhost:4318/v1/traces"
 
 # Destination classes — Phase 3's Rego policy reads these.
-DEST_INTERNAL = "internal"
-DEST_EXTERNAL = "external"
-DEST_LLM = "llm"
-DEST_LOG = "log"
-DEST_RAG = "rag"
+from sdk.destinations import (  # noqa: E402 - leaf module to avoid circular imports
+    DEST_INTERNAL, DEST_EXTERNAL, DEST_LLM, DEST_LOG, DEST_RAG,
+)
 # Sinks where raw sensitive data must not land. external/llm leave the system;
 # log is routinely shipped to centralized/aggregated stores, so it is a leak
 # surface too. Phase 3's Rego is the source of truth and can refine this (e.g.
@@ -105,19 +104,6 @@ def _jsonable(obj: Any) -> str:
         return repr(obj)
 
 
-def _tool_io_payload(args: tuple, kwargs: dict) -> str:
-    """Serialize the tool input for the span attribute. Masked in-process by
-    default; raw when AGENTTAINT_MASK_IN_SDK=0 (the sidecar redacts)."""
-    if MASK_IN_PROCESS:
-        payload = {
-            "args": mask_value(list(args)),
-            "kwargs": {k: mask_value(v) for k, v in kwargs.items()},
-        }
-    else:
-        payload = {"args": list(args), "kwargs": dict(kwargs)}
-    return _jsonable(payload)
-
-
 def instrument_tool(
     name: str | None = None,
     *,
@@ -149,10 +135,19 @@ def instrument_tool(
             tr = tracer or trace.get_tracer("agenttaint")
             incoming = tnt.current()  # chain-level taint from baggage
 
-            # Field-level taint on the tool's input.
+            # Field-level taint on the tool's input (computed from the ORIGINAL
+            # args so the taint label reflects what was actually requested).
             input_payload = [*args, *kwargs.values()] if (args or kwargs) else []
             in_detections = detect_mapping(input_payload) if input_payload else []
             input_label = taint_for(in_detections)
+
+            # Phase 4 egress gate: redact the tool's ACTUAL input args for this
+            # destination BEFORE the call. internal -> reversible FPE token;
+            # external/llm/log/rag -> non-reversible mask. The tool operates on
+            # redacted data, so raw PII never reaches the sink. The collector
+            # remains the authoritative policy decider + redaction backstop.
+            redacted_args = [redact_payload(a, destination) for a in args]
+            redacted_kwargs = {k: redact_payload(v, destination) for k, v in kwargs.items()}
 
             merged_in = (incoming or tnt.TaintLabel.of(set())).merge(input_label)
             # Attach merged taint to the context so nested calls inherit it.
@@ -171,7 +166,10 @@ def instrument_tool(
                 links=links,
                 attributes={
                     "gen_ai.tool.name": span_name,
-                    "gen_ai.tool.call.arguments": _tool_io_payload(args, kwargs),
+                    # Store what the tool actually received (already redacted).
+                    "gen_ai.tool.call.arguments": _jsonable(
+                        {"args": redacted_args, "kwargs": redacted_kwargs}
+                    ),
                 },
             ) as span:
                 # Re-mark chain taint on the span after we have a span id for lineage.
@@ -182,7 +180,7 @@ def instrument_tool(
                 span.set_attribute(ATTR_JURISDICTION, jurisdiction)
 
                 try:
-                    result = fn(*args, **kwargs)
+                    result = fn(*redacted_args, **redacted_kwargs)
                 except Exception as exc:
                     span.record_exception(exc)
                     span.set_attribute("agenttaint.tool.error", str(exc))
@@ -201,7 +199,9 @@ def instrument_tool(
                 stored_result = mask_value(result) if MASK_IN_PROCESS else result
                 span.set_attribute("gen_ai.tool.call.result", _jsonable(stored_result))
 
-                # SDK-side egress gate (Phase 4 hardens this to actual redaction/block).
+                # SDK-side egress gate: the args above were already redacted
+                # (Phase 4); this flag records that a tainted chain reached an
+                # egress sink — the policy decision the collector also makes.
                 if destination in _EGRESS_SINKS and merged_out.is_tainted:
                     span.set_attribute(ATTR_VIOLATION, True)
                     span.set_attribute(

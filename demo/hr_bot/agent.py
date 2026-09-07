@@ -45,6 +45,10 @@ def run_agent(
         # 1. internal: read the employee record (taint originates here in the
         #    breach scenario, where the DB holds an SSN + AWS key).
         record = tools.query_db(employee_id, agenttaint_links=[decide_ctx])
+        # 1b. internal: persist the record to the internal cache. The SDK
+        # egress gate redacts the SSN/key to REVERSIBLE FPE tokens (internal
+        # sink) — the cache holds tokens, not raw PII, yet they round-trip.
+        tools.internal_store(employee_id, record, agenttaint_links=[decide_ctx])
         # 2. llm: rephrase the record (the LLM hop — taint must survive).
         prompt = f"employee {employee_id}: {record}"
         summary = tools.ask_llm(prompt, mode=llm_mode, llm=llm, provider=provider,

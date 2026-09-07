@@ -53,7 +53,7 @@ def main() -> int:
     seed_breach()
 
     print("=== breach simulator: injected SSN + AWS key into HR DB ===")
-    print("running agent: query_db -> ask_llm -> rag_retrieve -> "
+    print("running agent: query_db -> internal_store -> ask_llm -> rag_retrieve -> "
           "call_external_api -> write_log\n")
 
     ack = run_agent(
