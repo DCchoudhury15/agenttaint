@@ -1,0 +1,110 @@
+"""Tests for the tamper-evident Merkle violation log."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+
+from evidence.merkle import (
+    MerkleLog, verify_inclusion, verify_log_consistency, violation_record,
+)
+
+
+def _viol(tool, dest="external", reasons="pii_egress"):
+    return violation_record(
+        trace_id="t" + tool, span_id="s" + tool, tool=tool,
+        destination=dest, jurisdiction="us", classes="pii,secret",
+        reasons=reasons, timestamp_ns=1700000000_000000000,
+    )
+
+
+class TestMerkleLog(unittest.TestCase):
+    def test_empty_root_is_stable(self):
+        a = MerkleLog()
+        b = MerkleLog()
+        self.assertEqual(a.root(), b.root())
+        self.assertEqual(len(a), 0)
+
+    def test_append_changes_root_and_grows(self):
+        log = MerkleLog()
+        r0 = log.root()
+        log.append(_viol("call_external_api"))
+        self.assertEqual(len(log), 1)
+        self.assertNotEqual(log.root(), r0)
+
+    def test_inclusion_proof_verifies(self):
+        log = MerkleLog()
+        for t in ["ask_llm", "call_external_api", "write_log", "query_db"]:
+            log.append(_viol(t))
+        for i in range(len(log)):
+            proof = log.inclusion_proof(i)
+            self.assertTrue(verify_inclusion(proof.leaf_hash, proof, log.root()),
+                            f"inclusion proof for leaf {i} failed")
+
+    def test_tamper_detection_modified_record_changes_root(self):
+        log = MerkleLog()
+        log.append(_viol("call_external_api"))
+        root_before = log.root()
+        proof = log.inclusion_proof(0)
+        # tamper: rebuild a log with the same count but a changed record
+        tampered = MerkleLog()
+        v = _viol("call_external_api")
+        v["tool"] = "TAMPERED"
+        tampered.append(v)
+        root_after = tampered.root()
+        self.assertNotEqual(root_after, root_before)
+        # the old proof does NOT verify against the tampered root
+        self.assertFalse(verify_inclusion(proof.leaf_hash, proof, root_after))
+
+    def test_stale_proof_fails_after_more_appends(self):
+        log = MerkleLog()
+        log.append(_viol("call_external_api"))
+        proof = log.inclusion_proof(0)
+        root1 = log.root()
+        self.assertTrue(verify_inclusion(proof.leaf_hash, proof, root1))
+        # append more — root changes; the OLD root/proof no longer match the new root
+        log.append(_viol("ask_llm"))
+        log.append(_viol("write_log"))
+        root2 = log.root()
+        self.assertNotEqual(root1, root2)
+        # but a fresh proof for leaf 0 DOES verify against the new root
+        fresh = log.inclusion_proof(0)
+        self.assertTrue(verify_inclusion(fresh.leaf_hash, fresh, root2))
+
+    def test_consistency_prefix_root_matches(self):
+        records = [_viol(t) for t in ["a", "b", "c", "d"]]
+        old = records[:2]
+        new = records
+        self.assertTrue(verify_log_consistency(old, new))
+        # a reordered/replaced prefix is NOT consistent
+        bad = [records[1], records[0]]
+        self.assertFalse(verify_log_consistency(bad, new))
+
+    def test_persistence_roundtrip(self,):
+        with tempfile.NamedTemporaryFile(suffix=".logl", delete=False) as f:
+            path = f.name
+        log = MerkleLog(path)
+        for t in ["ask_llm", "call_external_api"]:
+            log.append(_viol(t))
+        root1 = log.root()
+        # reopen from disk
+        log2 = MerkleLog(path)
+        self.assertEqual(len(log2), 2)
+        self.assertEqual(log2.root(), root1)
+        import os
+        os.unlink(path)
+
+    def test_proof_json_roundtrip(self):
+        log = MerkleLog()
+        log.append(_viol("call_external_api"))
+        proof = log.inclusion_proof(0)
+        from evidence.merkle import InclusionProof
+        restored = InclusionProof.from_json(proof.to_json())
+        self.assertEqual(restored.leaf_hash, proof.leaf_hash)
+        self.assertEqual(restored.siblings, proof.siblings)
+        self.assertTrue(verify_inclusion(restored.leaf_hash, restored, log.root()))
+
+
+if __name__ == "__main__":
+    unittest.main()
