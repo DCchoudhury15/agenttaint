@@ -56,8 +56,16 @@ _EGRESS_SINKS = {DEST_EXTERNAL, DEST_LLM, DEST_LOG}
 
 # Span attribute keys.
 ATTR_DEST = "agenttaint.destination"
+ATTR_JURISDICTION = "agenttaint.jurisdiction"  # GDPR Art. 44 (us|eu|""...)
 ATTR_VIOLATION = "agenttaint.violation"
 ATTR_TaintSource = "agenttaint.taint.source_span"  # noqa: N816 - keep readable
+
+# When a Phase 3 sidecar collector applies the authoritative Rego redaction,
+# set AGENTTAINT_MASK_IN_SDK=0 so the SDK sends raw tool I/O to the trusted
+# local sidecar (which redacts before SigNoz). Default "1" masks in-process
+# (the Phase 2 behavior, for when no sidecar is present).
+import os as _os
+MASK_IN_PROCESS = _os.environ.get("AGENTTAINT_MASK_IN_SDK", "1") != "0"
 
 
 def configure_tracing(
@@ -97,12 +105,16 @@ def _jsonable(obj: Any) -> str:
         return repr(obj)
 
 
-def _masked_payload(args: tuple, kwargs: dict) -> str:
-    """Serialize the (masked) tool input as JSON for the span attribute."""
-    payload = {
-        "args": mask_value(list(args)),
-        "kwargs": {k: mask_value(v) for k, v in kwargs.items()},
-    }
+def _tool_io_payload(args: tuple, kwargs: dict) -> str:
+    """Serialize the tool input for the span attribute. Masked in-process by
+    default; raw when AGENTTAINT_MASK_IN_SDK=0 (the sidecar redacts)."""
+    if MASK_IN_PROCESS:
+        payload = {
+            "args": mask_value(list(args)),
+            "kwargs": {k: mask_value(v) for k, v in kwargs.items()},
+        }
+    else:
+        payload = {"args": list(args), "kwargs": dict(kwargs)}
     return _jsonable(payload)
 
 
@@ -110,6 +122,7 @@ def instrument_tool(
     name: str | None = None,
     *,
     destination: str = DEST_INTERNAL,
+    jurisdiction: str = "",
     tracer: trace.Tracer | None = None,
 ):
     """Decorator that wraps a tool function with taint-aware OTel tracing.
@@ -147,6 +160,7 @@ def instrument_tool(
 
             span_attrs = dict(merged_in.to_span_attrs())
             span_attrs[ATTR_DEST] = destination
+            span_attrs[ATTR_JURISDICTION] = jurisdiction
             if merged_in.is_tainted:
                 span_attrs[ATTR_TaintSource] = merged_in.source_span_id or ""
 
@@ -157,7 +171,7 @@ def instrument_tool(
                 links=links,
                 attributes={
                     "gen_ai.tool.name": span_name,
-                    "gen_ai.tool.call.arguments": _masked_payload(args, kwargs),
+                    "gen_ai.tool.call.arguments": _tool_io_payload(args, kwargs),
                 },
             ) as span:
                 # Re-mark chain taint on the span after we have a span id for lineage.
@@ -165,6 +179,7 @@ def instrument_tool(
                     span.set_attributes(merged_in.to_span_attrs())
                     span.set_attribute(ATTR_TaintSource, merged_in.source_span_id or "")
                 span.set_attribute(ATTR_DEST, destination)
+                span.set_attribute(ATTR_JURISDICTION, jurisdiction)
 
                 try:
                     result = fn(*args, **kwargs)
@@ -183,7 +198,8 @@ def instrument_tool(
                 if merged_out.is_tainted:
                     span.set_attributes(merged_out.to_span_attrs())
 
-                span.set_attribute("gen_ai.tool.call.result", _jsonable(mask_value(result)))
+                stored_result = mask_value(result) if MASK_IN_PROCESS else result
+                span.set_attribute("gen_ai.tool.call.result", _jsonable(stored_result))
 
                 # SDK-side egress gate (Phase 4 hardens this to actual redaction/block).
                 if destination in _EGRESS_SINKS and merged_out.is_tainted:

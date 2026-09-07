@@ -1,0 +1,40 @@
+# AgentTaint sidecar collector — runtime config.
+#
+# Flow:  SDK  --OTLP/HTTP :4319-->  [taint_policy processor]  --batch-->  --OTLP/HTTP :4318-->  SigNoz
+#
+# taint_policy evaluates collector/policy/pii_egress.rego per span, writes
+# authoritative agenttaint.policy.* attrs, and redacts raw PII from span
+# attributes before they reach SigNoz/ClickHouse.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+
+processors:
+  taint_policy:
+    # Edit this file and restart — no rebuild needed. Empty => embedded policy.
+    policy_path: /home/divyanshu/agenttaint/collector/policy/pii_egress.rego
+  # taint_policy runs BEFORE batch (batching clears request context).
+  batch:
+    timeout: 1s
+    send_batch_size: 100
+
+exporters:
+  otlp/signoz:
+    # gRPC OTLP exporter -> SigNoz ingester's gRPC port (4317 is gRPC, 4318 is HTTP).
+    endpoint: localhost:4317
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [taint_policy, batch]
+      exporters: [otlp/signoz, debug]

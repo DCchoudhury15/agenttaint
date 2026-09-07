@@ -36,7 +36,7 @@ def query_db(employee_id: str) -> dict:
     return _DB.get(employee_id, {"error": f"no record for {employee_id}"})
 
 
-@instr.instrument_tool("ask_llm", destination=instr.DEST_LLM)
+@instr.instrument_tool("ask_llm", destination=instr.DEST_LLM, jurisdiction="us")
 def ask_llm(prompt: str, *, mode: str = "passthrough",
             llm: str = "stub", provider: str = "openai") -> str:
     """Ask the LLM to (re)phrase. The LLM is itself a sink, so this span is
@@ -61,7 +61,7 @@ def ask_llm(prompt: str, *, mode: str = "passthrough",
     return resp.choices[0].message.content  # type: ignore[index]
 
 
-@instr.instrument_tool("call_external_api", destination=instr.DEST_EXTERNAL)
+@instr.instrument_tool("call_external_api", destination=instr.DEST_EXTERNAL, jurisdiction="us")
 def call_external_api(payload: str) -> str:
     """Send a payload to a third-party external API — the leak sink."""
     return f"ACK from external service (received {len(payload)} chars)"
