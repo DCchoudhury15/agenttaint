@@ -24,13 +24,50 @@ mapping. The full build plan is in [`PLAN.md`](PLAN.md).
 
 ## Status
 
-Phase 1 — formal core + local SigNoz substrate. See [`PLAN.md`](PLAN.md).
+All six phases built and verified (each its own stacked PR):
+
+| phase | does | replaces |
+|---|---|---|
+| 1 | formal DOE model + local SigNoz substrate | — |
+| 2 | runtime taint on OTel (baggage + per-I/O re-detection) | AgentRaft's Φ (LLM-judged propagation) |
+| 3 | Rego policy in a sidecar collector | AgentRaft's D_nec 3-LLM committee |
+| 4 | reversible, context-aware redaction (FF3 FPE for internal, mask for egress) | static field-name masking |
+| 5 | tamper-evident Merkle log + lineage / blast-radius / SLO dashboards | metrics → verifiable Art. 30/15 records |
+| 6 | AST-grounded fix-suggester + DLP dry-run | (AgentRaft has no recovery) |
+
+Per-phase findings: `docs/phase{3,4,5,6}-*.md` + `docs/spike-llm-hop.md`.
 
 ## Pipeline
 
 ```
 detect → propagate → decide → redact → record → recover
 ```
+
+```
+Demo Agent ──gen_ai.* spans──▶ agenttaint-collector (sidecar)  ──▶ SigNoz
+   SDK: detect (Presidio+secrets)     OTLP rcv :4319                ClickHouse
+        propagate (baggage+span-links) taint_policy processor        dashboards
+        egress gate (redact before call) Rego eval + redact           Merkle log
+                                          └── otlpexporter gRPC :4317
+```
+
+## Run
+
+```bash
+python3 -m unittest discover tests        # 45 Python tests (no SigNoz needed)
+cd collector/processor/taintpolicy && go test ./...   # 3 Go processor tests
+
+# end-to-end (needs SigNoz + the sidecar up):
+cd signoz && foundryctl cast -f casting.yaml            # start SigNoz
+cd collector && ./bin/agenttaint-collector --config file:./config.yaml &  # sidecar :4319
+python3 demo/hr_bot/breach_simulator.py --endpoint http://localhost:4319/v1/traces
+python3 demo/phase5_evidence_demo.py                    # Merkle inclusion + tamper
+python3 fix_suggester/suggest.py fix_suggester/sample_buggy_agent.py
+```
+
+⚠️ The Phase 4 redaction uses **FF3** (NIST withdrew it Feb 2025; the `FPE`
+FF1 package failed to build here) and an in-process vault — demo-grade.
+Production → FF1 via HashiCorp Vault Transform + a managed key.
 
 ## Layout
 
