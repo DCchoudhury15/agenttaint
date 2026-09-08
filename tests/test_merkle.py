@@ -63,7 +63,7 @@ class TestMerkleLog(unittest.TestCase):
         proof = log.inclusion_proof(0)
         root1 = log.root()
         self.assertTrue(verify_inclusion(proof.leaf_hash, proof, root1))
-        # append more — root changes; the OLD root/proof no longer match the new root
+        # append more: root changes, the OLD root/proof no longer match the new root
         log.append(_viol("ask_llm"))
         log.append(_viol("write_log"))
         root2 = log.root()

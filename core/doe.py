@@ -1,4 +1,4 @@
-"""Formal Data Over-Exposure (DOE) model — the mathematical anchor for AgentTaint.
+"""Formal Data Over-Exposure (DOE) model: the mathematical anchor for AgentTaint.
 
 Implements the definition from AgentRaft (arXiv:2603.07557, Lin et al., 2026)::
 
@@ -10,7 +10,7 @@ where
     D_trans : the data payload actually delivered to the sink
     D_int   : data the user intended to transmit
     D_nec   : data strictly necessary for the sink to perform its function
-    D_OE    : over-exposed data — fields that reached a sink although neither
+    D_OE    : over-exposed data, fields that reached a sink although neither
               intended by the user nor required by the sink
 
 AgentRaft computes these sets offline from a custom agent-trace format and
@@ -56,7 +56,7 @@ class Field:
     Equality and hashing are by ``name`` only so that the same logical field
     compares equal across the source payload, the transmitted payload, and the
     policy tables. ``value`` is carried for redaction/diagnostics and is
-    deliberately excluded from identity — two ``Field`` objects with the same
+    deliberately excluded from identity: two ``Field`` objects with the same
     name but different values are the *same field* for DOE purposes.
     """
 
@@ -128,7 +128,7 @@ class DOEResult:
 
     @property
     def over_exposed_names(self) -> tuple[str, ...]:
-        """Over-exposed field names, sorted — for assertions and dashboards."""
+        """Over-exposed field names, sorted, for assertions and dashboards."""
         return tuple(sorted(f.name for f in self.d_oe))
 
     def sensitive_over_exposure(self) -> frozenset[Field]:
@@ -136,7 +136,7 @@ class DOEResult:
 
         The DOE formula itself is sensitivity-agnostic: a clean field can be
         over-exposed. Enforcement, however, only fires on sensitive
-        over-exposure — this helper is the bridge from the formal model to the
+        over-exposure. This helper is the bridge from the formal model to the
         Rego policy's ``PII + external/llm ⇒ VIOLATION`` rule.
         """
         return frozenset(f for f in self.d_oe if f.sensitivity.is_sensitive)
@@ -156,7 +156,7 @@ def classify(sets: DOESets) -> DOEResult:
     * it was **not** intended by the user (not in ``D_int``).
 
     The intersection with ``D_total`` is what scopes the violation to data the
-    agent actually retrieved — sink-internal fields the user never saw are
+    agent actually retrieved; sink-internal fields the user never saw are
     excluded even if they appear in ``D_trans``.
     """
     allowed = sets.d_nec | sets.d_int

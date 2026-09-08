@@ -32,7 +32,7 @@ const (
 	attTool         = "gen_ai.tool.name"
 )
 
-// policyAttrs written by the collector (authoritative — Rego is the source of truth).
+// policyAttrs written by the collector (authoritative: Rego is the source of truth).
 const (
 	attPolicyRedact           = "agenttaint.policy.redacted"
 	attPolicyViolation        = "agenttaint.policy.violation"
@@ -76,7 +76,7 @@ func newProcessor(cfg *Config, next consumer.Traces) (*taintPolicyProcessor, err
 	return &taintPolicyProcessor{cfg: cfg, next: next, prepared: prepared}, nil
 }
 
-// Capabilities — mutates span data.
+// Capabilities: mutates span data.
 func (p *taintPolicyProcessor) Capabilities() consumer.Capabilities {
 	return consumer.Capabilities{MutatesData: true}
 }
@@ -113,7 +113,7 @@ func (p *taintPolicyProcessor) processSpan(ctx context.Context, span ptrace.Span
 
 	results, err := p.prepared.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
-		// Policy eval failure must never drop telemetry — record and skip.
+		// Policy eval failure must never drop telemetry: record and skip.
 		span.Attributes().PutStr("agenttaint.policy.error", err.Error())
 		return
 	}

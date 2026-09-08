@@ -1,4 +1,4 @@
-"""Tests for sdk/redact.py — destination-aware reversible redaction."""
+"""Tests for sdk/redact.py: destination-aware reversible redaction."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ class TestRedaction(unittest.TestCase):
         )
 
     def test_redact_payload_recurses_dict(self):
-        # "engineering" is not detected as PII; "Alice" would be (PERSON) —
+        # "engineering" is not detected as PII; "Alice" would be (PERSON),
         # names are PII, so we use a non-name clean field here. Pass our own
         # redactor so the vault used for redaction is the one we reverse with.
         payload = {"ssn": SSN, "dept": "engineering", "key": AWS, "nested": {"ssn": SSN}}

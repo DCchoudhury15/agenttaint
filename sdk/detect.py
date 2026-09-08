@@ -2,14 +2,14 @@
 
 Two detection families:
 
-* **PII** via `presidio-analyzer` (regex + spaCy NER) — SSN, email, phone,
+* **PII** via `presidio-analyzer` (regex + spaCy NER): SSN, email, phone,
   credit card, person names, etc.
-* **Secrets** via custom recognizers — AWS access keys, GitHub tokens, and a
+* **Secrets** via custom recognizers: AWS access keys, GitHub tokens, and a
   generic high-entropy API-key heuristic, so the demo breach-simulator can
   inject a credential, not just an SSN.
 
 Output is a :class:`TaintLabel` carrying only sensitivity *classes* and a
-short non-reversible **fingerprint** of the matched value — never the value
+short non-reversible **fingerprint** of the matched value, never the value
 itself. The fingerprint lets the lineage map correlate the same secret across
 spans without re-storing it.
 """
@@ -142,7 +142,7 @@ def detect_text(text: str, *, threshold: float = 0.5) -> list[Detection]:
     """Detect sensitive spans in ``text``. Returns [] if none / on error.
 
     Presidio is loaded lazily; if the spaCy model is unavailable, returns []
-    rather than crashing — callers (the spike) can still observe chain-level
+    rather than crashing, so callers (the spike) can still observe chain-level
     taint propagation via baggage even when field detection degrades.
     """
     if not text:

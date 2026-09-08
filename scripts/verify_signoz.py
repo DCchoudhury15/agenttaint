@@ -1,6 +1,6 @@
 """Phase 1 substrate check: emit one hand-crafted OTLP/HTTP trace to local SigNoz.
 
-No OpenTelemetry SDK dependency — sends a raw OTLP/JSON trace to the collector's
+No OpenTelemetry SDK dependency, it sends a raw OTLP/JSON trace to the collector's
 OTLP/HTTP endpoint (localhost:4318/v1/traces). Validates that SigNoz ingests and
 stores a trace before Phase 2 builds the real SDK on top of this substrate.
 

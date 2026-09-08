@@ -1,10 +1,10 @@
-"""OTel instrumentation for agent tool calls — the runtime taint tracker.
+"""OTel instrumentation for agent tool calls: the runtime taint tracker.
 
 Wraps each tool call in an OTel span using GenAI semantic conventions
 (``gen_ai.tool.*``) and propagates the taint label via OTel baggage. This is
 AgentRaft's LA-DTP (runtime taint tracking) on OpenTelemetry, with Φ replaced
-by structural baggage propagation + per-I/O detection re-fire (see
-docs/agentraft-mapping.md §D/E).
+by structural baggage propagation plus per-I/O detection re-fire (see
+docs/agentraft-mapping.md sections D/E).
 
 Per tool call the wrapper:
 
@@ -21,7 +21,7 @@ Per tool call the wrapper:
    for external/llm sinks, records an SDK-side egress violation when the chain
    is tainted (the Phase 4 redaction gate hardens this from "record" to "block").
 
-Span *links* model fan-out/fan-in (one parent, many children, cross-trace) —
+Span *links* model fan-out/fan-in (one parent, many children, cross-trace),
 used by the RAG tool's retrieval fan-out in the demo. Parent-child links for
 linear flows are automatic via OTel context.
 """
@@ -43,7 +43,7 @@ logger = logging.getLogger("agenttaint.sdk")
 
 DEFAULT_OTLP_HTTP = "http://localhost:4318/v1/traces"
 
-# Destination classes — Phase 3's Rego policy reads these.
+# Destination classes, Phase 3's Rego policy reads these.
 from sdk.destinations import (  # noqa: E402 - leaf module to avoid circular imports
     DEST_INTERNAL, DEST_EXTERNAL, DEST_LLM, DEST_LOG, DEST_RAG,
 )
@@ -65,7 +65,7 @@ ATTR_TaintSource = "agenttaint.taint.source_span"  # noqa: N816 - keep readable
 # (the Phase 2 behavior, for when no sidecar is present).
 import os as _os
 MASK_IN_PROCESS = _os.environ.get("AGENTTAINT_MASK_IN_SDK", "1") != "0"
-# DLP simulation mode (Phase 6): log the violation but DON'T redact args — an
+# DLP simulation mode (Phase 6): log the violation but DON'T redact args, an
 # audit/dry-run for safe rollout (see what would be flagged before enforcing).
 # When set, raw args flow to the tool and a agenttaint.dry_run=true attr is set.
 DRY_RUN = _os.environ.get("AGENTTAINT_DRY_RUN", "") != ""
@@ -211,7 +211,7 @@ def instrument_tool(
 
                 # SDK-side egress gate: the args above were already redacted
                 # (Phase 4); this flag records that a tainted chain reached an
-                # egress sink — the policy decision the collector also makes.
+                # egress sink, the same policy decision the collector also makes.
                 if destination in _EGRESS_SINKS and merged_out.is_tainted:
                     span.set_attribute(ATTR_VIOLATION, True)
                     span.set_attribute(
@@ -234,7 +234,7 @@ def instrument_tool(
 
 
 # ---------------------------------------------------------------------------
-# Run scoping — one trace per run, clean taint slate per run
+# Run scoping: one trace per run, clean taint slate per run
 # ---------------------------------------------------------------------------
 
 _ATTACH_TOKENS: list = []   # context_api.attach tokens, for end_run reset

@@ -54,13 +54,13 @@ func TestProcessor_EgressAndTransferAndRedact(t *testing.T) {
 	}
 
 	td := ptrace.NewTraces()
-	// A tainted span reaching an external US sink — should violate + transfer + redact.
+	// A tainted span reaching an external US sink: should violate + transfer + redact.
 	span := newSpan(td, "call_external_api")
 	span.Attributes().PutBool("agenttaint.sensitive", true)
 	span.Attributes().PutStr("agenttaint.taint.classes", "pii,secret")
 	span.Attributes().PutStr("agenttaint.destination", "external")
 	span.Attributes().PutStr("agenttaint.jurisdiction", "us")
-	// Raw PII the SDK left in a string attr (mask-in-SDK off) — collector must redact.
+	// Raw PII the SDK left in a string attr (mask-in-SDK off): collector must redact.
 	span.Attributes().PutStr("gen_ai.tool.call.result", `{"ssn":"234-12-1234","key":"AKIAIOSFODNN7EXAMPLE"}`)
 
 	if err := p.ConsumeTraces(context.Background(), td); err != nil {

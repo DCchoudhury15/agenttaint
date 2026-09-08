@@ -1,17 +1,17 @@
 """Taint label + OpenTelemetry baggage propagation.
 
 The taint tag is a compact, **non-sensitive** descriptor that rides with data
-through the OTel pipeline. It NEVER carries the secret value — only:
+through the OTel pipeline. It NEVER carries the secret value, only:
 
     taint.id      a uuid identifying the taint origin
     taint.classes comma-joined sensitivity classes (e.g. ``pii,secret``)
     taint.level   coarse severity (``low`` | ``medium`` | ``high``)
 
-Two propagation layers (see docs/agentraft-mapping.md §D, the core novelty):
+Two propagation layers (see docs/agentraft-mapping.md section D, the core novelty):
 
 1. **Call-chain taint (baggage).** A value-independent flag: "this execution
-   chain has touched sensitive data." Because it is not tied to the secret's
-   surface form, it survives any LLM transformation by construction — even if
+   chain has touched sensitive data." Because it isn't tied to the secret's
+   surface form, it survives any LLM transformation by construction, even if
    the LLM reformats, abbreviates, or paraphrases the value, the chain is
    still flagged.
 
@@ -21,10 +21,11 @@ Two propagation layers (see docs/agentraft-mapping.md §D, the core novelty):
 
 The chain-level tag is a **safe over-approximation**: a PII-touched chain
 reaching an external/LLM sink is a violation even when the specific field
-can't be pinpointed post-transformation. The residual gap — PII transformed
-into a non-detectable form that nonetheless "leaks" semantically — is exactly
-where AgentRaft's Φ (LLM-judged semantic dependency) would be needed as a
-Phase 6 fall-back. The LLM-hop spike (``spike/llm_hop.py``) demonstrates this.
+can't be pinpointed after the transformation. The residual gap is PII
+transformed into a non-detectable form that nonetheless "leaks" semantically,
+and that's exactly where AgentRaft's Φ (LLM-judged semantic dependency) would
+be needed as a Phase 6 fall-back. The LLM-hop spike (``spike/llm_hop.py``)
+demonstrates this.
 """
 
 from __future__ import annotations
@@ -75,7 +76,7 @@ class TaintLabel:
 
     ``source_span_id`` is carried only for diagnostics/lineage and is not
     serialized into baggage (it would be stale across hops). ``value_fingerprint``
-    is an optional short hash of the secret for correlation only — never the
+    is an optional short hash of the secret for correlation only, never the
     secret itself.
     """
 

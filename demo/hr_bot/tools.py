@@ -3,7 +3,7 @@
 Destinations are the Phase 3 policy classes:
   query_db          -> internal   (the HR database)
   call_external_api -> external   (a third-party service, e.g. an auditor API)
-  ask_llm           -> llm        (a third-party model — also a sink)
+  ask_llm           -> llm        (a third-party model, also a sink)
   write_log         -> log        (a logging sink)
   rag_retrieve      -> rag        (retrieval over a vector store)
 
@@ -36,7 +36,7 @@ def query_db(employee_id: str) -> dict:
     return _DB.get(employee_id, {"error": f"no record for {employee_id}"})
 
 
-# In-process "internal cache" — written by internal_store (Phase 4 demo).
+# In-process "internal cache", written by internal_store (Phase 4 demo).
 _INTERNAL_CACHE: dict[str, dict] = {}
 
 
@@ -44,7 +44,7 @@ _INTERNAL_CACHE: dict[str, dict] = {}
 def internal_store(key: str, record: dict) -> str:
     """Write a record to the trusted internal cache. Because this is an
     INTERNAL sink, the SDK egress gate redacts sensitive fields in the
-    ``record`` arg to REVERSIBLE FPE tokens before this tool runs — the cache
+    ``record`` arg to REVERSIBLE FPE tokens before this tool runs, so the cache
     holds tokens, not raw PII, yet they can be reversed by the redactor."""
     _INTERNAL_CACHE[key] = record
     return f"stored {key} ({len(record)} fields, redacted)"
@@ -77,7 +77,7 @@ def ask_llm(prompt: str, *, mode: str = "passthrough",
 
 @instr.instrument_tool("call_external_api", destination=instr.DEST_EXTERNAL, jurisdiction="us")
 def call_external_api(payload: str) -> str:
-    """Send a payload to a third-party external API — the leak sink."""
+    """Send a payload to a third-party external API, the leak sink."""
     return f"ACK from external service (received {len(payload)} chars)"
 
 
@@ -93,7 +93,7 @@ def rag_retrieve(query: str, *, chunks: int = 3) -> list[str]:
     links: each chunk retrieval is a span linked back to the agent's decision
     span (passed by the agent as ``agenttaint_links``).
 
-    NOTE: embeddings are invertible (OWASP LLM08:2025) — Phase 5 will add
+    NOTE: embeddings are invertible (OWASP LLM08:2025), so Phase 5 will add
     redact-before-embed here. For Phase 2 we only propagate taint.
     """
     # The links (if any) were already consumed by the decorator on this span.

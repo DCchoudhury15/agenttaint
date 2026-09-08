@@ -1,7 +1,7 @@
-# Phase 5 — record: lineage, blast-radius, SLO, and tamper-evident evidence
+# Phase 5: record, lineage, blast-radius, SLO, and tamper-evident evidence
 
 **Status:** done (local, 2026-09-04). Verified with real collector violations
-from SigNoz + 8 unit tests.
+from SigNoz plus 8 unit tests.
 
 AgentRaft produces *metrics* (57%, F1). Phase 5 turns the violation trail into
 **cryptographically verifiable GDPR Art. 30/15 evidence**: a tamper-evident
@@ -11,28 +11,29 @@ record.
 
 ## Pieces
 
-- `evidence/merkle.py` — append-only Merkle (SHA-256) log over violation records.
+- `evidence/merkle.py`: an append-only Merkle (SHA-256) log over violation
+  records.
   - `leaf_hash = SHA256(0x00 || canonical_json(record))`
-  - `parent_hash = SHA256(0x01 || left || right)` — **ordered** (not sorted) so
-    the append sequence is preserved; a reordered prefix yields a different
+  - `parent_hash = SHA256(0x01 || left || right)`, **ordered** (not sorted) so
+    the append sequence is preserved; reordering a prefix yields a different
     root (Crosby-Wallach / CT style).
   - `append` / `root` / `inclusion_proof(i)` / `record(i)`; append-only file
     persistence (rebuilt on load).
-  - `verify_inclusion(leaf_hash, proof, root)` — O(log n).
-  - `verify_log_consistency(old, new)` — old prefix root must equal the new
-    log's first `len(old)` leaves' root.
-  - `violation_record(...)` — non-sensitive leaf shape (ids + taint classes +
-    policy reasons; never raw values).
-- `evidence/recorder.py` — `record_violations(log, service, since_minutes)`:
+  - `verify_inclusion(leaf_hash, proof, root)`: O(log n).
+  - `verify_log_consistency(old, new)`: the old prefix's root must equal the
+    new log's first `len(old)` leaves' root.
+  - `violation_record(...)`: a non-sensitive leaf shape (ids, taint classes,
+    policy reasons, never raw values).
+- `evidence/recorder.py`: `record_violations(log, service, since_minutes)`
   queries SigNoz/ClickHouse for spans with `agenttaint.policy.violation=1`
   (JSONEachRow via `docker exec clickhouse-client`) and appends each as a leaf.
-- `evidence/log.py` — CLI: `record` / `root` / `prove <i>` / `verify <json>` /
-  `count`.
-- `dashboards/lineage.json`, `blast_radius.json`, `slo.json` — ClickHouse-SQL
-  artifacts: the lineage path per run (Art. 30 recipients/transfers), blast
-  radius (distinct tools/destinations per tainted trace — Art. 30 disclosure
-  / Art. 15 access), and a clean-run SLO (99% leak-free runs; a violation burns
-  the error budget) + alerts.
+- `evidence/log.py`: a CLI with `record` / `root` / `prove <i>` / `verify
+  <json>` / `count`.
+- `dashboards/lineage.json`, `blast_radius.json`, `slo.json`: ClickHouse SQL
+  artifacts covering the lineage path per run (Art. 30 recipients/transfers),
+  blast radius (distinct tools/destinations per tainted trace, for Art. 30
+  disclosure and Art. 15 access), and a clean-run SLO (99% leak-free runs,
+  where a violation burns the error budget) plus alerts.
 
 ## Verified end-to-end with real data
 
@@ -43,24 +44,24 @@ inclusion proof for leaf 0 (ask_llm): verified=true
 tamper detection: modified record -> root differs; original proof fails (False)
 ```
 
-The `ask_llm` violation (real trace_id `203389…`, span_id, timestamp) is in
-the log with a verifiable inclusion proof; editing any record changes the
+The `ask_llm` violation (real trace_id `203389...`, span_id, timestamp) is in
+the log with a verifiable inclusion proof. Editing any record changes the
 root and invalidates prior proofs.
 
 ## Out of scope (deferred)
 
 - `analysis/fcg.py` + `prompt_synth.py` (AgentRaft's offline FCG / prompt
-  synthesis as an audit/fuzz mode) — the portfolio goal favours the runtime
-  enforcement + evidence story over the offline audit mode. The synthesized
+  synthesis as an audit/fuzz mode). The portfolio goal favors the runtime
+  enforcement plus evidence story over the offline audit mode. The synthesized
   prompts would double as the integration-test corpus; left as a future
   addition on top of the Merkle evidence layer.
-- Auto-importing the dashboards via the SigNoz MCP (`signoz_create_dashboard`)
-  — the MCP server isn't enabled in `casting.yaml`; the SQL is the artifact
-  and imports via the UI or MCP when enabled.
+- Auto-importing the dashboards via the SigNoz MCP (`signoz_create_dashboard`).
+  The MCP server isn't enabled in `casting.yaml` yet, so the SQL is the
+  artifact for now, and it imports via the UI or MCP once that's enabled.
 
 ## Tests
 
-- `tests/test_merkle.py` — 8 green (empty root, append, inclusion, tamper
+- `tests/test_merkle.py`: 8 green (empty root, append, inclusion, tamper
   detection, stale-proof-after-append, consistency, persistence roundtrip,
   proof JSON roundtrip).
 - Full suite: 39 Python green (14 DOE + 8 SDK + 9 redact + 8 merkle).

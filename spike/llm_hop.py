@@ -2,26 +2,26 @@
 
 Minimal flow:  read_file  ->  llm_rephrase  ->  external_api
 
-The question (PLAN.md §4 risk #1): if the agent reads an SSN, then calls an
-LLM that *regenerates* the value into a new surface form, does structural
-baggage propagation keep the taint alive — or do we need AgentRaft's Φ
+The question (PLAN.md section 4 risk #1): if the agent reads an SSN, then calls
+an LLM that *regenerates* the value into a new surface form, does structural
+baggage propagation keep the taint alive, or do we need AgentRaft's Φ
 (LLM-judged semantic dependency) as a fall-back?
 
 The LLM backend is **pluggable**:
 
-* a deterministic stub with three modes — ``passthrough`` (verbatim),
-  ``reformat`` (strip dashes → "234121234", which Presidio's US_SSN regex no
-  longer matches), ``summarize`` (drop the value entirely: "the employee's
+* a deterministic stub with three modes: ``passthrough`` (verbatim),
+  ``reformat`` (strip dashes to get "234121234", which Presidio's US_SSN regex
+  no longer matches), ``summarize`` (drop the value entirely: "the employee's
   record"). This lets us deterministically test each transformation case.
 * the real OpenAI / Anthropic API, activated when ``OPENAI_API_KEY`` or
   ``ANTHROPIC_API_KEY`` is set. Pass ``--llm real`` and ``--provider``.
 
 Expected result (the thesis): the **call-chain taint (baggage)** survives every
-mode by construction — it is value-independent, so the ``external_api`` sink is
+mode by construction, it's value-independent, so the ``external_api`` sink is
 flagged as a violation in all three. The **field-level re-detection** catches
 ``passthrough`` and (maybe) ``reformat`` but not ``summarize``. The residual
-gap — PII transformed into a non-detectable form that nonetheless travels
-semantically — is exactly where Φ would be needed (Phase 6 fall-back), but for
+gap is PII transformed into a non-detectable form that nonetheless travels
+semantically, exactly where Φ would be needed (Phase 6 fall-back), but for
 *enforcement* the chain-level flag is a safe over-approximation: flag the sink.
 
 Run:
@@ -87,7 +87,7 @@ def llm_rephrase(record: dict, *, mode: str = "passthrough",
 
 @instr.instrument_tool("external_api", destination=instr.DEST_EXTERNAL)
 def external_api(payload: str) -> str:
-    """The external sink — where a leak would actually leave the system."""
+    """The external sink, where a leak would actually leave the system."""
     incoming = instr.current_taint()
     return f"SENT to external service: {payload!r} (chain_taint={incoming})"
 

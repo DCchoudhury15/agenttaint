@@ -58,7 +58,7 @@ def main() -> int:
     print(f"leaves: {len(log)}")
 
     if len(log) == 0:
-        print("no violations to prove — run the breach first")
+        print("no violations to prove, run the breach first")
         return 1
 
     print("\n=== inclusion proof for leaf 0 ===")

@@ -1,10 +1,10 @@
-"""Breach simulator — injects an SSN + AWS key so the whole pipeline fires.
+"""Breach simulator: injects an SSN and an AWS key so the whole pipeline fires.
 
 The "breach-simulator button" from the original pitch: seed the internal DB
 with a record containing an SSN and an AWS access key (the kind of credential
 leak a static field-name mask would miss), then run the HR agent. The taint
 originates at ``query_db`` (internal), flows through ``ask_llm`` (the LLM hop),
-and reaches ``call_external_api`` + ``write_log`` — both flagged as violations.
+and reaches ``call_external_api`` and ``write_log``, both flagged as violations.
 
 Run:
     python3 demo/hr_bot/breach_simulator.py

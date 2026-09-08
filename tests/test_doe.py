@@ -68,7 +68,7 @@ class TestDOEFormula(unittest.TestCase):
         }
         # User only intended the date
         d_int = {_f("payment_date", CLEAN)}
-        # send_email strictly needs the date (the body) — not the card/cvv
+        # send_email strictly needs the date (the body), not the card/cvv
         d_nec = {_f("payment_date", CLEAN)}
 
         result = classify(DOESets.of(d_total, d_trans, d_int, d_nec))

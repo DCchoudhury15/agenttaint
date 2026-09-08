@@ -1,4 +1,4 @@
-"""Destination-aware redaction — the Phase 4 standout feature.
+"""Destination-aware redaction: the Phase 4 standout feature.
 
 The real "context-aware" redaction: the *same* sensitive value is treated
 differently depending on where it is going, because Phase 2/3 taint tracking
@@ -16,14 +16,15 @@ followed where the data actually travels (not a static field-name mask).
 Implementation: FPE generates the format-preserving token (same length,
 same alphabet, separators preserved); an in-process vault maps token -> exact
 original so reversal is exact (FPE alone loses the case of letter positions
-that encrypt to digits). This is FPE + tokenization — the plan's allowed pair.
+that encrypt to digits). This is FPE plus tokenization, the pair the plan allows.
 
 ⚠️  DEMO-GRADE. The FPE here is **FF3**; NIST SP 800-38G Rev.1 (Feb 2025)
-    **withdrew FF3** — FF1 is the current NIST-approved method (the `FPE` PyPI
-    package, FF1, failed to build in this env). The vault is in-process and
-    non-persistent. For production: FF1 via HashiCorp Vault Transform (which
-    pairs FPE with a managed, persistent token vault) or an audited FF1 lib,
-    and source the key from a secret manager — not an env var.
+    **withdrew FF3**. FF1 is the current NIST-approved method, but the `FPE`
+    PyPI package (FF1) failed to build in this environment. The vault is
+    in-process and non-persistent. For production, use FF1 via HashiCorp
+    Vault Transform (which pairs FPE with a managed, persistent token vault)
+    or an audited FF1 lib, and pull the key from a secret manager, not an
+    env var.
 
 The key (``AGENTTAINT_FPE_KEY``, 128/192/256-bit hex) must be kept secret.
 """
@@ -48,7 +49,7 @@ _MASK_TOKEN = {
     Sensitivity.SECRET: "[SECRET]",
 }
 
-# Demo key — 128-bit hex. REPLACE for any real use. See module docstring.
+# Demo key, 128-bit hex. Replace before any real use. See module docstring.
 _DEFAULT_DEMO_KEY = "EF4359D8D580AA4F7F036D6F04FB771B"
 _DEFAULT_TWEAK = "AABBCCDDEEFF0011"  # hex tweak (ff3 requirement)
 
@@ -164,7 +165,7 @@ class Redactor:
         """Reverse an internal-sink FPE token to the exact original.
 
         Returns None for masks or unknown tokens. Masks are non-reversible by
-        construction — that is the whole point of the external/llm/log path.
+        construction, that's the whole point of the external/llm/log path.
         """
         if token in _MASK_TOKEN.values():
             return None

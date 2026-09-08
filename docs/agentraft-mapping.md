@@ -1,6 +1,6 @@
-# AgentRaft → AgentTaint: Section-by-Section Mapping
+# AgentRaft to AgentTaint: Section-by-Section Mapping
 
-This document is the **citation defense** for AgentTaint: it maps each module of
+This document is the **citation defense** for AgentTaint. It maps each module of
 AgentRaft (arXiv:2603.07557, Lin et al., March 2026) to its AgentTaint
 counterpart and states the transformation. Anyone reading this should be able to
 answer *"what did you actually change vs the paper?"* per section.
@@ -22,103 +22,105 @@ D_OE    : over-exposed data
 ```
 
 It detects DOE offline via (1) a cross-tool Function Call Graph built by
-static type-pruning + LLM semantic validation, (2) BFS prompt synthesis over the
-FCG, and (3) runtime taint tracking (LA-DTP) where taint propagation uses an
+static type-pruning plus LLM semantic validation, (2) BFS prompt synthesis over
+the FCG, and (3) runtime taint tracking (LA-DTP) where taint propagation uses an
 LLM-judged semantic-dependency function **Φ(a,f)** and D_nec is decided by a
 multi-LLM voting committee (GPT-4.1, Qwen3-Plus, DeepSeek-V3.2) grounded in
-GDPR/CCPA/PIPL. Evaluated on AgentDojo with 6,675 MCP.so tools; DOE in 57.07%
-of call chains; judge F1 97.86%.
+GDPR/CCPA/PIPL. Evaluated on AgentDojo with 6,675 MCP.so tools; DOE shows up in
+57.07% of call chains; judge F1 is 97.86%.
 
 ## Section map
 
 ### A. DOE formal model
-- **Paper:** the `D_OE` set expression above; the mathematical definition of the
+- **Paper:** the `D_OE` set expression above, the mathematical definition of the
   risk.
 - **AgentTaint:** `core/doe.py` implements exactly this expression as typed set
   operations over `Field` identifiers.
-- **Transformation:** **keep verbatim.** This is the formal anchor that makes the
+- **Transformation:** kept verbatim. This is the formal anchor that makes the
   "same model, different substrate" claim defensible. Unit-tested against the
   paper's worked examples.
 
 ### B. Cross-Tool Function Call Graph (FCG)
-- **Paper:** directed graph of tool-to-tool edges; hybrid static type-pruning
-  (type equivalence/subset/conversion) + LLM validation of semantic relevance;
-  call-edge template uses extracted Verb+Object. F1 95.10%.
-- **AgentTaint:** `analysis/fcg.py` — **deferred to Phase 5.** Runtime traces
+- **Paper:** directed graph of tool-to-tool edges, hybrid static type-pruning
+  (type equivalence/subset/conversion) plus LLM validation of semantic
+  relevance; call-edge template uses extracted Verb+Object. F1 95.10%.
+- **AgentTaint:** `analysis/fcg.py`, deferred to Phase 5. Runtime traces
   *are* the call graph; the FCG is only needed for offline audit/fuzz.
-- **Transformation:** **drop for MVP**, reintroduce as an offline audit mode that
-  also generates the integration-test prompt corpus.
+- **Transformation:** dropped for MVP, reintroduced as an offline audit mode
+  that also generates the integration-test prompt corpus.
 
 ### C. User Prompt Synthesis
-- **Paper:** BFS over the FCG for acyclic source→sink paths; instantiate
-  templates with concrete user assets; partition into D_int and
+- **Paper:** BFS over the FCG for acyclic source-to-sink paths, instantiate
+  templates with concrete user assets, partition into D_int and
   over-exposure candidates. 93.74% trigger coverage.
-- **AgentTaint:** `analysis/prompt_synth.py` — a **test-harness/fuzzer** for our
+- **AgentTaint:** `analysis/prompt_synth.py`, a **test-harness/fuzzer** for our
   own demo bot, not a general attack generator.
-- **Transformation:** **reframe** — synthesized prompts become the integration
+- **Transformation:** reframed. Synthesized prompts become the integration
   test corpus that proves the enforcement pipeline fires.
 
 ### D. Runtime Taint Tracking (LA-DTP)
-- **Paper:** maintains a dynamic Taint Table 𝒯 (field→label); labels at source;
-  propagates through three observation points: `source_function`,
+- **Paper:** maintains a dynamic Taint Table 𝒯 (field to label), labels at
+  source, propagates through three observation points: `source_function`,
   `tool_function`, `sink_function`.
 - **AgentTaint:** `sdk/taint.py` (Taint Table materialized as OTel span
-  attributes) + `sdk/instrumentation.py` (the three observation points become
-  span start/end hooks). Taint rides in **OTel baggage** within a process and
-  **span links** across fan-out/fan-in.
-- **Transformation:** **replace Φ with structural propagation.** This is the
-  core novelty — propagation is real-time and LLM-free.
+  attributes) plus `sdk/instrumentation.py` (the three observation points
+  become span start/end hooks). Taint rides in **OTel baggage** within a
+  process and **span links** across fan-out/fan-in.
+- **Transformation:** replaced Φ with structural propagation. This is the
+  core novelty, propagation is real-time and LLM-free.
 
-### E. Φ(a,f) — LLM-judged semantic dependency
+### E. Φ(a,f), LLM-judged semantic dependency
 - **Paper:** "is field *a* semantically derived from/associated with field *f*?"
-  — the expensive, offline, per-step LLM call that drives propagation.
-- **AgentTaint:** **eliminated** in the runtime path (baggage carries the tag
+  The expensive, offline, per-step LLM call that drives propagation.
+- **AgentTaint:** eliminated in the runtime path (baggage carries the tag
   structurally). Optionally reintroduced in Phase 6 as a **fall-back** for
   untagged cross-process flows where the LLM regenerated a value.
-- **Transformation:** **the headline trade.** Deterministic structural
+- **Transformation:** the headline trade. Deterministic structural
   propagation instead of per-step LLM judgment.
 
-### F. D_nec — multi-LLM voting committee
+### F. D_nec, the multi-LLM voting committee
 - **Paper:** GPT-4.1, Qwen3-Plus, DeepSeek-V3.2 majority vote, prompted with
-  GDPR/CCPA/PIPL data-minimization + least-privilege. F1 97.92% vs ~83%
+  GDPR/CCPA/PIPL data-minimization plus least-privilege. F1 97.92% vs ~83%
   single-model.
-- **AgentTaint:** `collector/policy/*.rego` — a deterministic, editable Rego
+- **AgentTaint:** `collector/policy/*.rego`, a deterministic, editable Rego
   bundle evaluated per span in the collector processor. Per-sink-class rules
   encode "strictly necessary" statically.
-- **Transformation:** **the second headline trade.** Auditable, no 3 LLM calls
-  per step, admins edit rules without a rebuild. Trade: loses the committee's
-  nuance on novel sinks — acceptable for a product you can ship.
+- **Transformation:** the second headline trade. Auditable, no 3 LLM calls
+  per step, admins edit rules without a rebuild. The trade-off is losing the
+  committee's nuance on novel sinks, which is acceptable for a product you can
+  ship.
 
-### G. Substrate — AgentDojo custom trace
+### G. Substrate, the AgentDojo custom trace
 - **Paper:** custom "Agent Trace" log format (function names, args, return
   values per step). Built on AgentDojo. Target agent GPT-5.1.
 - **AgentTaint:** **OpenTelemetry `gen_ai.*` semantic conventions** ingested by
-  **SigNoz**. `genainormalizer` unifies OpenInference/OpenLLMetry → `gen_ai.*`
-  for LangChain/LangGraph/CrewAI.
-- **Transformation:** **the platform trade.** Standard, ubiquitous, the format
+  **SigNoz**. `genainormalizer` unifies OpenInference/OpenLLMetry into
+  `gen_ai.*` for LangChain/LangGraph/CrewAI.
+- **Transformation:** the platform trade. Standard, ubiquitous, the format
   agents already speak.
 
-### H. Enforcement — *not in the paper*
+### H. Enforcement, not in the paper
 - **Paper:** AgentRaft only **detects** DOE; it does not prevent it.
 - **AgentTaint:** `sdk/redact.py` (FF1 format-preserving reversible token for
-  internal sinks, non-reversible mask for external/LLM) + an SDK-side egress
-  gate + collector-side redact so raw PII is never stored.
-- **Transformation:** **AgentTaint's addition.** Detect → enforce.
+  internal sinks, non-reversible mask for external/LLM) plus an SDK-side
+  egress gate and collector-side redact, so raw PII is never stored.
+- **Transformation:** AgentTaint's addition. Detect becomes enforce.
 
-### I. Evidence — *not in the paper*
+### I. Evidence, not in the paper
 - **Paper:** produces aggregate metrics (57.07%, F1, etc.).
-- **AgentTaint:** lineage map + blast-radius as SigNoz dashboards, plus a
-  tamper-evident Merkle/history-tree log (Crosby-Wallach, O(log n) inclusion +
-  consistency proofs) → cryptographically verifiable GDPR Art. 30/15 evidence.
-- **Transformation:** **AgentTaint's addition.** Metrics → verifiable records.
+- **AgentTaint:** lineage map plus blast-radius as SigNoz dashboards, plus a
+  tamper-evident Merkle/history-tree log (Crosby-Wallach, O(log n) inclusion
+  and consistency proofs), giving cryptographically verifiable GDPR Art. 30/15
+  evidence.
+- **Transformation:** AgentTaint's addition. Metrics become verifiable records.
 
 ## The one-sentence pitch
 
-*"AgentRaft proved you can track sensitive data through an agent — but it's just
+*"AgentRaft proved you can track sensitive data through an agent, but it's just
 a paper, on a format nobody uses. AgentTaint puts its formal model on
 OpenTelemetry, replaces the LLM committee with deterministic policy, adds
 runtime redaction so the leak never happens, and turns the trail into GDPR
-evidence — shipped as a real product on SigNoz."*
+evidence, shipped as a real product on SigNoz."*
 
 ## Verified facts (re-checked 2026-09-01)
 

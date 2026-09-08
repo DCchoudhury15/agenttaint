@@ -1,4 +1,4 @@
-"""Unit tests for the AgentTaint SDK propagation — no SigNoz required.
+"""Unit tests for the AgentTaint SDK propagation, no SigNoz required.
 
 Builds a TracerProvider with an in-memory exporter and drives a two-tool flow
 to assert, offline, that:

@@ -37,7 +37,7 @@ def _hash_leaf(record: dict) -> bytes:
 
 
 def _hash_parent(left: bytes, right: bytes) -> bytes:
-    """Internal node hash. ORDERED (left || right) — not sorted — so the append
+    """Internal node hash. ORDERED (left || right), not sorted, so the append
     sequence is preserved in the tree structure. This is what makes the log
     tamper-evident against reordering: a reordered prefix produces a different
     root (Crosby-Wallach / Certificate-Transparency style)."""
@@ -203,7 +203,7 @@ def violation_record(
     timestamp_ns: int,
 ) -> dict:
     """Canonical violation record (the leaf content). Keep it non-sensitive:
-    no raw values — only the taint classes + policy decision + ids."""
+    no raw values, only the taint classes, policy decision, and ids."""
     return {
         "trace_id": trace_id,
         "span_id": span_id,

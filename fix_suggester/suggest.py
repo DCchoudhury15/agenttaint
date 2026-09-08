@@ -1,15 +1,15 @@
-"""AST fix-suggester — grounded, one-line fixes for unguarded egress sinks.
+"""AST fix-suggester: grounded, one-line fixes for unguarded egress sinks.
 
 The "recover" pillar. Walks agent tool-call code, finds calls to external / LLM
 sinks whose arguments are NOT routed through the SDK's redaction (i.e. not
 wrapped by an ``@instrument_tool``-decorated tool), and emits the exact
-one-line fix. An LLM *narrates* the finding; the **suggestion is grounded in
-the AST**, not a free-form LLM patch — more defensible (and cheaper) than
-asking a model to propose a fix.
+one-line fix. An LLM *narrates* the finding, but the suggestion itself is
+grounded in the AST, not a free-form LLM patch, which is more defensible (and
+cheaper) than asking a model to propose a fix.
 
 The SigNoz MCP read path (``signoz_search_traces`` for similar past
 violations, to prioritize fixes by which leak shape actually fires in prod)
-is a hook — activated when the MCP server + a model key are configured.
+is a hook, activated when the MCP server and a model key are configured.
 Without them, ``narrate`` produces a deterministic, AST-grounded explanation.
 
 Sink detection (configurable): dotted call names matching
@@ -131,7 +131,7 @@ def narrate(finding: Finding) -> str:
     would pull similar past violations (signoz_search_traces) to prioritize;
     here it's a deterministic, AST-grounded explanation."""
     return (
-        f"{finding.file}:{finding.lineno} — `{finding.call}` is an unguarded "
+        f"{finding.file}:{finding.lineno}: `{finding.call}` is an unguarded "
         f"{finding.destination} sink inside `{finding.enclosing}`. Its argument "
         f"reaches the sink without the Phase 4 egress gate, so raw PII could "
         f"leave the system. Suggested fix:\n    {finding.fix}"
