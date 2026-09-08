@@ -220,14 +220,23 @@ def mask_text(text: str, detections: Iterable[Detection]) -> str:
     """
     if not text:
         return text
-    # Apply from the end so earlier offsets stay valid.
-    out = text
-    spans = sorted(
-        ((d.start, d.end, d.sensitivity) for d in detections if d.is_sensitive),
-        reverse=True,
+    # Presidio recognizers can overlap (e.g. EMAIL_ADDRESS and URL both firing
+    # on "alice@example.com"). Splicing every raw span independently corrupts
+    # the output, since a later splice's offsets go stale once an earlier one
+    # has already changed the string's length. Dedup first: keep the longest
+    # detection per region, same as sdk/redact.py's redact_text.
+    sens_dets = sorted(
+        (d for d in detections if d.is_sensitive),
+        key=lambda d: (d.start, -(d.end - d.start)),
     )
-    for start, end, sens in spans:
-        out = out[:start] + _MASK_TOKEN.get(sens, "[REDACTED]") + out[end:]
+    kept: list = []
+    for d in sens_dets:
+        if kept and d.start < kept[-1].end:
+            continue  # overlaps the previous (longer, same-start) kept span
+        kept.append(d)
+    out = text
+    for d in sorted(kept, key=lambda d: d.start, reverse=True):
+        out = out[:d.start] + _MASK_TOKEN.get(d.sensitivity, "[REDACTED]") + out[d.end:]
     return out
 
 
