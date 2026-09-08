@@ -1,10 +1,10 @@
-"""Unit tests for the AgentTaint SDK propagation, no SigNoz required.
+"""Unit tests for the AgentWard SDK propagation, no SigNoz required.
 
 Builds a TracerProvider with an in-memory exporter and drives a two-tool flow
 to assert, offline, that:
   * the chain-level taint (baggage) propagates from a tool whose output carries
     PII to the next sibling tool;
-  * a tainted chain reaching an external/llm/log sink sets agenttaint.violation;
+  * a tainted chain reaching an external/llm/log sink sets agentward.violation;
   * raw PII is masked in the stored span attributes (never reaches storage).
 """
 
@@ -33,7 +33,7 @@ def _build_tracer():
     provider = TracerProvider(resource=Resource.create({"service.name": "test"}))
     exporter = InMemorySpanExporter()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    tracer = provider.get_tracer("agenttaint")
+    tracer = provider.get_tracer("agentward")
     return provider, exporter, tracer
 
 
@@ -92,8 +92,8 @@ class TestPropagation(unittest.TestCase):
 
         spans = self.exporter.get_finished_spans()
         sink_span = next(s for s in spans if s.name == "sink")
-        self.assertTrue(_attrs(sink_span, "agenttaint.violation"))
-        classes = _attrs(sink_span, "agenttaint.taint.classes")
+        self.assertTrue(_attrs(sink_span, "agentward.violation"))
+        classes = _attrs(sink_span, "agentward.taint.classes")
         self.assertIn("pii", classes)
 
     def test_internal_sink_not_flagged_as_violation(self):
@@ -110,9 +110,9 @@ class TestPropagation(unittest.TestCase):
 
         spans = self.exporter.get_finished_spans()
         tool_span = next(s for s in spans if s.name == "internal_tool")
-        self.assertIsNone(_attrs(tool_span, "agenttaint.violation"))
+        self.assertIsNone(_attrs(tool_span, "agentward.violation"))
         # but the taint is still recorded (it touched PII)
-        self.assertIn("pii", _attrs(tool_span, "agenttaint.taint.classes"))
+        self.assertIn("pii", _attrs(tool_span, "agentward.taint.classes"))
 
     def test_raw_pii_is_masked_in_stored_result(self):
         @instr.instrument_tool("leak", destination=instr.DEST_EXTERNAL,
@@ -147,7 +147,7 @@ class TestPropagation(unittest.TestCase):
 
         spans = self.exporter.get_finished_spans()
         span = next(s for s in spans if s.name == "clean")
-        self.assertFalse(_attrs(span, "agenttaint.sensitive"))
+        self.assertFalse(_attrs(span, "agentward.sensitive"))
 
 
 class TestTaintLabel(unittest.TestCase):
@@ -167,6 +167,63 @@ class TestTaintLabel(unittest.TestCase):
         self.assertIsNotNone(decoded)
         self.assertEqual(decoded.classes, label.classes)
         self.assertEqual(decoded.level, label.level)
+
+    def test_untainted_label_roundtrips_to_none(self):
+        # An untainted label serializes to empty baggage; decoding empty
+        # baggage must yield None (equivalent to "no taint"), not raise.
+        label = tnt.TaintLabel.of(set())
+        self.assertEqual(label.to_baggage(), {})
+        self.assertIsNone(tnt.TaintLabel.from_baggage(label.to_baggage()))
+        self.assertIsNone(tnt.TaintLabel.from_baggage({}))
+        self.assertIsNone(tnt.TaintLabel.from_baggage(None))
+
+    def test_unicode_taint_id_roundtrips(self):
+        label = tnt.TaintLabel.of([Sensitivity.PII], id="taint-é中文-id")
+        decoded = tnt.TaintLabel.from_baggage(label.to_baggage())
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.id, label.id)
+
+    def test_merge_order_independent_with_untainted_side(self):
+        tainted = tnt.TaintLabel.of([Sensitivity.PII])
+        untainted = tnt.TaintLabel.of(set())
+        # Either merge order must yield the same effective (tainted) result.
+        a = tainted.merge(untainted)
+        b = untainted.merge(tainted)
+        self.assertEqual(a.classes, tainted.classes)
+        self.assertEqual(b.classes, tainted.classes)
+        self.assertTrue(a.is_tainted)
+        self.assertTrue(b.is_tainted)
+
+    def test_merge_with_none_is_identity(self):
+        label = tnt.TaintLabel.of([Sensitivity.SECRET])
+        self.assertEqual(label.merge(None).classes, label.classes)
+
+    def test_from_baggage_malformed_level_does_not_crash(self):
+        # A corrupted/version-skewed baggage.level must never raise -- it
+        # should degrade to the level derived from the (valid) classes.
+        bag = {
+            tnt.KEY_ID: "abc",
+            tnt.KEY_CLASSES: "pii",
+            tnt.KEY_LEVEL: "not-a-real-level",
+        }
+        decoded = tnt.TaintLabel.from_baggage(bag)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.level, tnt.TaintLevel.MEDIUM)
+
+    def test_from_baggage_drops_only_unrecognized_class_tokens(self):
+        # One bad token in taint.classes must not erase the valid ones.
+        bag = {
+            tnt.KEY_ID: "abc",
+            tnt.KEY_CLASSES: "pii,not-a-real-class",
+            tnt.KEY_LEVEL: "high",
+        }
+        decoded = tnt.TaintLabel.from_baggage(bag)
+        self.assertIsNotNone(decoded)
+        self.assertEqual(decoded.classes, frozenset({Sensitivity.PII}))
+
+    def test_from_baggage_all_unrecognized_classes_is_none(self):
+        bag = {tnt.KEY_ID: "abc", tnt.KEY_CLASSES: "bogus1,bogus2"}
+        self.assertIsNone(tnt.TaintLabel.from_baggage(bag))
 
 
 if __name__ == "__main__":

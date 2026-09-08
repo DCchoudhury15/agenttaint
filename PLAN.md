@@ -1,4 +1,4 @@
-# AgentTaint: Project Plan
+# AgentWard: Project Plan
 
 ## 0. Thesis
 
@@ -6,7 +6,7 @@ AgentRaft (arXiv:2603.07557) proved you can *detect* Data Over-Exposure (DOE) in
 LLM agents, but it's offline, on AgentDojo's custom trace format, and its two
 core mechanisms (Φ = LLM-judged semantic dependency for taint propagation;
 D_nec = 3-LLM voting committee for necessity) are expensive and
-non-deterministic. AgentTaint takes AgentRaft's formal DOE model and puts it
+non-deterministic. AgentWard takes AgentRaft's formal DOE model and puts it
 on OpenTelemetry + SigNoz as a runtime enforcement product: replace Φ with
 structural baggage/span-link propagation (real-time, LLM-free), replace the
 D_nec committee with deterministic Rego policy (auditable), and add the thing
@@ -17,9 +17,9 @@ happens, plus lineage/blast-radius as live GDPR Art. 30 evidence.
 story with a write-up/talk. Favor a tight, compelling vertical over exhaustive
 coverage. FCG/audit-mode (Phase 5) and the 3-LLM committee stay *optional*.
 
-## 1. AgentRaft to AgentTaint section map
+## 1. AgentRaft to AgentWard section map
 
-| # | AgentRaft section | AgentTaint counterpart | Transformation |
+| # | AgentRaft section | AgentWard counterpart | Transformation |
 |---|---|---|---|
 | A | DOE formal model `D_OE = (D_trans \ (D_nec ∪ D_int)) ∩ D_total` | `core/doe.py` | **Keep verbatim**, this is the formal anchor |
 | B | FCG generation (type-pruning + LLM validation) | `analysis/fcg.py` | **Defer to Phase 5** (offline audit) |
@@ -28,8 +28,8 @@ coverage. FCG/audit-mode (Phase 5) and the 3-LLM committee stay *optional*.
 | E | Φ(a,f) LLM semantic dependency | *(eliminated in runtime path)* | **Headline trade**, kept as optional Phase 6 fall-back |
 | F | D_nec multi-LLM committee | `collector/policy/*.rego` | **Replace with Rego**, second headline trade |
 | G | AgentDojo custom trace | OTel `gen_ai.*` semconv → SigNoz | **Platform trade** |
-| H | *(not in paper)* enforcement | `sdk/redact.py` (FF1) + egress gate | **AgentTaint addition** |
-| I | *(not in paper)* evidence | lineage/blast-radius + Merkle log | **AgentTaint addition (GDPR)** |
+| H | *(not in paper)* enforcement | `sdk/redact.py` (FF1) + egress gate | **AgentWard addition** |
+| I | *(not in paper)* evidence | lineage/blast-radius + Merkle log | **AgentWard addition (GDPR)** |
 
 **Defensible-novelty sentence:** same DOE math (A), runtime not offline (D),
 deterministic not LLM (E→baggage, F→Rego), standard not custom (G),
@@ -94,7 +94,7 @@ before the external/LLM call, in-process); the collector gate is the backstop.
 ### Phase 6: Recover + polish
 - `fix-suggester/`: AST-walk finds an unguarded external/LLM arg, emits a one-line fix; LLM narrates via `signoz_search_traces`/`signoz_get_trace_details` MCP
 - DLP simulation mode (dry-run: log, don't block); RAG checks (redact-before-embed, retrieval-time authz)
-- README, architecture diagram, demo script, AgentRaft-vs-AgentTaint write-up
+- README, architecture diagram, demo script, AgentRaft-vs-AgentWard write-up
 - **Demoable:** breach-simulator button triggers the full pipeline, fix-suggester proposes the patch.
 
 ## 4. Tech choices & risks

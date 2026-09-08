@@ -91,7 +91,7 @@ def write_log(message: str) -> None:
 def rag_retrieve(query: str, *, chunks: int = 3) -> list[str]:
     """Retrieve chunks from a vector store. Demonstrates fan-out via span
     links: each chunk retrieval is a span linked back to the agent's decision
-    span (passed by the agent as ``agenttaint_links``).
+    span (passed by the agent as ``agentward_links``).
 
     NOTE: embeddings are invertible (OWASP LLM08:2025), so Phase 5 will add
     redact-before-embed here. For Phase 2 we only propagate taint.

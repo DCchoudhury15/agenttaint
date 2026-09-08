@@ -40,7 +40,7 @@ from sdk import taint as tnt
 from sdk.detect import detect_mapping, mask_value, taint_for
 from sdk.redact import redact_payload
 
-logger = logging.getLogger("agenttaint.sdk")
+logger = logging.getLogger("agentward.sdk")
 
 DEFAULT_OTLP_HTTP = "http://localhost:4318/v1/traces"
 
@@ -55,21 +55,21 @@ from sdk.destinations import (  # noqa: E402 - leaf module to avoid circular imp
 _EGRESS_SINKS = {DEST_EXTERNAL, DEST_LLM, DEST_LOG}
 
 # Span attribute keys.
-ATTR_DEST = "agenttaint.destination"
-ATTR_JURISDICTION = "agenttaint.jurisdiction"  # GDPR Art. 44 (us|eu|""...)
-ATTR_VIOLATION = "agenttaint.violation"
-ATTR_TaintSource = "agenttaint.taint.source_span"  # noqa: N816 - keep readable
+ATTR_DEST = "agentward.destination"
+ATTR_JURISDICTION = "agentward.jurisdiction"  # GDPR Art. 44 (us|eu|""...)
+ATTR_VIOLATION = "agentward.violation"
+ATTR_TaintSource = "agentward.taint.source_span"  # noqa: N816 - keep readable
 
 # When a Phase 3 sidecar collector applies the authoritative Rego redaction,
-# set AGENTTAINT_MASK_IN_SDK=0 so the SDK sends raw tool I/O to the trusted
+# set AGENTWARD_MASK_IN_SDK=0 so the SDK sends raw tool I/O to the trusted
 # local sidecar (which redacts before SigNoz). Default "1" masks in-process
 # (the Phase 2 behavior, for when no sidecar is present).
 import os as _os
-MASK_IN_PROCESS = _os.environ.get("AGENTTAINT_MASK_IN_SDK", "1") != "0"
+MASK_IN_PROCESS = _os.environ.get("AGENTWARD_MASK_IN_SDK", "1") != "0"
 # DLP simulation mode (Phase 6): log the violation but DON'T redact args, an
 # audit/dry-run for safe rollout (see what would be flagged before enforcing).
-# When set, raw args flow to the tool and a agenttaint.dry_run=true attr is set.
-DRY_RUN = _os.environ.get("AGENTTAINT_DRY_RUN", "") != ""
+# When set, raw args flow to the tool and a agentward.dry_run=true attr is set.
+DRY_RUN = _os.environ.get("AGENTWARD_DRY_RUN", "") != ""
 
 
 def configure_tracing(
@@ -91,14 +91,14 @@ def configure_tracing(
 
     resource = Resource.create({
         "service.name": service_name,
-        "service.namespace": "agenttaint",
+        "service.namespace": "agentward",
     })
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
     if console:
         provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
     trace.set_tracer_provider(provider)
-    return provider.get_tracer("agenttaint")
+    return provider.get_tracer("agentward")
 
 
 def _jsonable(obj: Any) -> str:
@@ -120,7 +120,7 @@ def instrument_tool(
 
     The wrapped function's positional/keyword args are treated as the tool's
     input payload; the return value as the output. The caller may pass an
-    extra ``agenttaint_links=[span_context, ...]`` kwarg to add span links
+    extra ``agentward_links=[span_context, ...]`` kwarg to add span links
     for fan-out/fan-in (consumed, not forwarded to the tool).
     """
     def decorator(fn: Callable) -> Callable:
@@ -129,7 +129,7 @@ def instrument_tool(
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
             # Pop our private link contexts (for fan-out/fan-in) before calling.
-            link_ctxs = kwargs.pop("agenttaint_links", None) or []
+            link_ctxs = kwargs.pop("agentward_links", None) or []
             links = []
             for sc in link_ctxs:
                 try:
@@ -137,7 +137,7 @@ def instrument_tool(
                 except Exception:
                     pass
 
-            tr = tracer or trace.get_tracer("agenttaint")
+            tr = tracer or trace.get_tracer("agentward")
             incoming = tnt.current()  # chain-level taint from baggage
 
             # Field-level taint on the tool's input (computed from the ORIGINAL
@@ -188,13 +188,13 @@ def instrument_tool(
                 span.set_attribute(ATTR_DEST, destination)
                 span.set_attribute(ATTR_JURISDICTION, jurisdiction)
                 if DRY_RUN:
-                    span.set_attribute("agenttaint.dry_run", True)
+                    span.set_attribute("agentward.dry_run", True)
 
                 try:
                     result = fn(*redacted_args, **redacted_kwargs)
                 except Exception as exc:
                     span.record_exception(exc)
-                    span.set_attribute("agenttaint.tool.error", str(exc))
+                    span.set_attribute("agentward.tool.error", str(exc))
                     raise
 
                 # Field-level taint on the tool's output.
@@ -216,7 +216,7 @@ def instrument_tool(
                 if destination in _EGRESS_SINKS and merged_out.is_tainted:
                     span.set_attribute(ATTR_VIOLATION, True)
                     span.set_attribute(
-                        "agenttaint.violation.reason",
+                        "agentward.violation.reason",
                         f"tainted chain reached {destination} sink",
                     )
 
@@ -262,7 +262,7 @@ def begin_run(name: str = "agent.run") -> object:
     attach_tokens, root_spans = _run_lists()
     attach_tokens.clear()
     root_spans.clear()
-    tracer = trace.get_tracer("agenttaint")
+    tracer = trace.get_tracer("agentward")
     root = tracer.start_span(name, kind=trace.SpanKind.INTERNAL)
     root_spans.append(root)
     tok = context_api.attach(trace.set_span_in_context(root))

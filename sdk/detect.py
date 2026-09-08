@@ -1,4 +1,4 @@
-"""Sensitive-data detection for the AgentTaint SDK.
+"""Sensitive-data detection for the AgentWard SDK.
 
 Two detection families:
 

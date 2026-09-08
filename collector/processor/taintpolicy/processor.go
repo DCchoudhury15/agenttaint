@@ -25,28 +25,28 @@ var embeddedPolicy string
 
 // policyAttrs read off each span to feed the Rego policy.
 const (
-	attSensitive    = "agenttaint.sensitive"
-	attClasses      = "agenttaint.taint.classes"
-	attDestination  = "agenttaint.destination"
-	attJurisdiction = "agenttaint.jurisdiction"
+	attSensitive    = "agentward.sensitive"
+	attClasses      = "agentward.taint.classes"
+	attDestination  = "agentward.destination"
+	attJurisdiction = "agentward.jurisdiction"
 	attTool         = "gen_ai.tool.name"
 )
 
 // policyAttrs written by the collector (authoritative: Rego is the source of truth).
 const (
-	attPolicyRedact           = "agenttaint.policy.redacted"
-	attPolicyViolation        = "agenttaint.policy.violation"
-	attPolicyTransfer         = "agenttaint.policy.transfer_violation"
-	attPolicyViolations       = "agenttaint.policy.violations"
-	attPolicyReasons          = "agenttaint.policy.reasons"
-	attPolicyDecision         = "agenttaint.policy.decision_engine"
+	attPolicyRedact           = "agentward.policy.redacted"
+	attPolicyViolation        = "agentward.policy.violation"
+	attPolicyTransfer         = "agentward.policy.transfer_violation"
+	attPolicyViolations       = "agentward.policy.violations"
+	attPolicyReasons          = "agentward.policy.reasons"
+	attPolicyDecision         = "agentward.policy.decision_engine"
 	decisionEngine            = "rego"
 )
 
 // taintPolicyProcessor is a traces processor that:
-//  1. reads agenttaint.* attrs off each span,
+//  1. reads agentward.* attrs off each span,
 //  2. evaluates the embedded Rego policy (compile-once / eval-many),
-//  3. writes collector-authoritative agenttaint.policy.* attrs, and
+//  3. writes collector-authoritative agentward.policy.* attrs, and
 //  4. redacts raw PII from span string attributes so SigNoz never stores it.
 type taintPolicyProcessor struct {
 	cfg      *Config
@@ -67,7 +67,7 @@ func newProcessor(cfg *Config, next consumer.Traces) (*taintPolicyProcessor, err
 	}
 	// Compile once at startup; eval many per span.
 	prepared, err := rego.New(
-		rego.Query("data.agenttaint.decision"),
+		rego.Query("data.agentward.decision"),
 		rego.Module("pii_egress.rego", policySrc),
 	).PrepareForEval(context.Background())
 	if err != nil {
@@ -114,7 +114,7 @@ func (p *taintPolicyProcessor) processSpan(ctx context.Context, span ptrace.Span
 	results, err := p.prepared.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
 		// Policy eval failure must never drop telemetry: record and skip.
-		span.Attributes().PutStr("agenttaint.policy.error", err.Error())
+		span.Attributes().PutStr("agentward.policy.error", err.Error())
 		return
 	}
 	if len(results) == 0 || len(results[0].Expressions) == 0 {

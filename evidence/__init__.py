@@ -1,4 +1,4 @@
-"""AgentTaint evidence layer: tamper-evident Merkle log of violations."""
+"""AgentWard evidence layer: tamper-evident Merkle log of violations."""
 
 from evidence import merkle, recorder
 

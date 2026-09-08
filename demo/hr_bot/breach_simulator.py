@@ -37,8 +37,8 @@ def seed_breach() -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="AgentTaint HR bot breach simulator")
-    ap.add_argument("--service", default="agenttaint-hr-bot")
+    ap = argparse.ArgumentParser(description="AgentWard HR bot breach simulator")
+    ap.add_argument("--service", default="agentward-hr-bot")
     ap.add_argument("--endpoint", default=instr.DEFAULT_OTLP_HTTP,
                     help="OTLP/HTTP endpoint (default: SigNoz direct; point at the "
                          "Phase 3 sidecar at http://localhost:4319/v1/traces)")
@@ -70,8 +70,8 @@ def main() -> int:
         pass
 
     print(f"\nexternal API ack: {ack}")
-    print("\nInspect in SigNoz: service=agenttaint-hr-bot, "
-          "filter agenttaint.violation=true (should see call_external_api + write_log)")
+    print("\nInspect in SigNoz: service=agentward-hr-bot, "
+          "filter agentward.violation=true (should see call_external_api + write_log)")
     return 0
 
 

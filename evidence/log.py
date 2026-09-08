@@ -1,8 +1,8 @@
-"""CLI for the AgentTaint tamper-evident violation log.
+"""CLI for the AgentWard tamper-evident violation log.
 
 Examples:
     # record recent collector violations from SigNoz into the log file
-    python3 evidence/log.py record --service agenttaint-hr-bot --since-mins 10
+    python3 evidence/log.py record --service agentward-hr-bot --since-mins 10
 
     # show the current root
     python3 evidence/log.py root
@@ -37,12 +37,12 @@ def _open(path: Path) -> MerkleLog:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="AgentTaint tamper-evident violation log")
+    ap = argparse.ArgumentParser(description="AgentWard tamper-evident violation log")
     ap.add_argument("--log-file", default=str(DEFAULT_LOG))
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_rec = sub.add_parser("record", help="record recent collector violations from SigNoz")
-    p_rec.add_argument("--service", default="agenttaint-hr-bot")
+    p_rec.add_argument("--service", default="agentward-hr-bot")
     p_rec.add_argument("--since-mins", type=int, default=10)
 
     sub.add_parser("root", help="print the current Merkle root (hex)")

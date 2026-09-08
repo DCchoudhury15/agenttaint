@@ -1,4 +1,4 @@
-module github.com/DCchoudhury15/agenttaint/collector/processor/taintpolicy
+module github.com/DCchoudhury15/agentward/collector/processor/taintpolicy
 
 go 1.26.4
 

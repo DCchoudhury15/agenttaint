@@ -54,11 +54,33 @@ def _classify_sink(dotted: str) -> str | None:
     return None
 
 
-def _is_instrumented(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _import_aliases(tree: ast.AST) -> dict[str, str]:
+    """Map local names introduced by `import x as y` / `from m import x as y`
+    to the real name they refer to, so decorator matching sees through import
+    aliasing, e.g. `from sdk.instrumentation import instrument_tool as it`."""
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.asname:
+                    aliases[alias.asname] = alias.name
+    return aliases
+
+
+def _is_instrumented(fn: ast.FunctionDef | ast.AsyncFunctionDef, aliases: dict[str, str]) -> bool:
     for dec in fn.decorator_list:
         name = _dotted_name(dec.func) if isinstance(dec, ast.Call) else _dotted_name(dec)
-        # match instrument_tool or any dotted form ending in instrument_tool
-        if name.endswith("instrument_tool") or name.split(".")[-1] == "instrument_tool":
+        # Resolve import aliasing before matching: either the whole decorator
+        # name (`it` -> `instrument_tool`) or its leading dotted component
+        # (`instr.instrument_tool` where `instr` aliases the module).
+        head, _, rest = name.partition(".")
+        resolved = aliases.get(name, name)
+        if head in aliases and rest:
+            resolved = f"{aliases[head]}.{rest}"
+        # Exact match on the (dotted) decorator name only -- a substring
+        # `endswith("instrument_tool")` check would wrongly treat an unrelated
+        # decorator like `fake_instrument_tool` as the real guard.
+        if resolved.split(".")[-1] == "instrument_tool":
             return True
     return False
 
@@ -87,6 +109,8 @@ def analyze_tree(tree: ast.AST, filename: str) -> list[Finding]:
         for child in ast.iter_child_nodes(parent):
             parents[child] = parent
 
+    aliases = _import_aliases(tree)
+
     def enclosing_fn(call: ast.Call):
         p = parents.get(call)
         while p is not None:
@@ -104,7 +128,7 @@ def analyze_tree(tree: ast.AST, filename: str) -> list[Finding]:
             continue
         enc = enclosing_fn(node)
         enclosing_name = enc.name if enc else "<module>"
-        guarded = _is_instrumented(enc) if enc else False
+        guarded = _is_instrumented(enc, aliases) if enc else False
         if guarded:
             continue
         arg_hint = "payload" if dest == DEST_EXTERNAL else "prompt/record"

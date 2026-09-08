@@ -1,4 +1,4 @@
-# AgentTaint
+# AgentWard
 
 > A GPS tracker for sensitive data inside AI agents: runtime **enforcement** of
 > the Data Over-Exposure (DOE) model on OpenTelemetry + SigNoz.
@@ -18,11 +18,11 @@ can run in production. It works offline, on a custom trace format from the
 AgentDojo benchmark, and it decides "was this data strictly necessary?" by
 polling three different LLMs and taking a majority vote.
 
-AgentTaint takes AgentRaft's formal model and turns it into something that
+AgentWard takes AgentRaft's formal model and turns it into something that
 runs live, on infrastructure you already have (OpenTelemetry + SigNoz), with
 no LLM in the hot path:
 
-| AgentRaft | AgentTaint |
+| AgentRaft | AgentWard |
 |---|---|
 | Φ = LLM-judged semantic dependency (taint propagation) | structural OTel **baggage + span-link** propagation, real-time and LLM-free |
 | D_nec = GPT-4.1 / Qwen3-Plus / DeepSeek-V3.2 voting committee | deterministic **Rego** policy, auditable, no 3 LLM calls per step |
@@ -50,13 +50,13 @@ flowchart LR
 ```
 
 And here is the actual runtime shape of it, an agent process instrumented
-with the AgentTaint SDK, talking to a sidecar collector that makes the
+with the AgentWard SDK, talking to a sidecar collector that makes the
 policy decision before anything reaches storage:
 
 ```mermaid
 flowchart TD
     subgraph AP["Agent process (the HR bot demo)"]
-        SDK["AgentTaint SDK<br/>detect · taint · redact"]
+        SDK["AgentWard SDK<br/>detect · taint · redact"]
         T1["query_db (internal)"]
         T2["ask_llm (llm)"]
         T3["call_external_api (external)"]
@@ -71,7 +71,7 @@ flowchart TD
 
     AP -->|"OTLP/HTTP spans, :4319"| RCV
 
-    subgraph SC["agenttaint-collector (sidecar)"]
+    subgraph SC["agentward-collector (sidecar)"]
         RCV["otlp receiver"]
         POL["taint_policy processor<br/>Rego eval + redact"]
         RCV --> POL
@@ -159,13 +159,13 @@ cd collector/processor/taintpolicy && go test ./...   # 3 Go processor tests
 
 # end-to-end (needs SigNoz + the sidecar collector up)
 cd signoz && foundryctl cast -f casting.yaml                              # start SigNoz
-cd collector && ./bin/agenttaint-collector --config file:./config.yaml &  # sidecar, :4319
+cd collector && ./bin/agentward-collector --config file:./config.yaml &  # sidecar, :4319
 python3 demo/hr_bot/breach_simulator.py --endpoint http://localhost:4319/v1/traces
 python3 demo/phase5_evidence_demo.py                    # Merkle inclusion + tamper check
 python3 fix_suggester/suggest.py fix_suggester/sample_buggy_agent.py
 ```
 
-Then open `http://localhost:8080`, filter on `agenttaint.violation=true`, and
+Then open `http://localhost:8080`, filter on `agentward.violation=true`, and
 you'll see the flagged spans from the run above.
 
 ⚠️ The Phase 4 redaction uses **FF3** (NIST withdrew it in Feb 2025; the

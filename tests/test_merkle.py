@@ -72,6 +72,34 @@ class TestMerkleLog(unittest.TestCase):
         fresh = log.inclusion_proof(0)
         self.assertTrue(verify_inclusion(fresh.leaf_hash, fresh, root2))
 
+    def test_odd_leaf_count_duplicate_append_changes_root(self):
+        """Regression for the classic CVE-2012-2459 Merkle bug: pairing an
+        unpaired trailing leaf with a duplicate of itself makes an n-leaf
+        tree's root collide with the root of an (n+1)-leaf tree formed by
+        appending a copy of the last leaf. That would let an attacker (or a
+        buggy retry) insert a duplicate record into the log without moving
+        the root at all - silently defeating the log's whole purpose."""
+        log = MerkleLog()
+        for t in ["a", "b", "c"]:  # odd leaf count
+            log.append(_viol(t))
+        root_before = log.root()
+        log.append(_viol("c"))  # duplicate of the last leaf
+        root_after = log.root()
+        self.assertNotEqual(root_before, root_after)
+
+    def test_inclusion_proof_verifies_for_odd_leaf_counts(self):
+        for n in (1, 3, 5, 7, 9):
+            log = MerkleLog()
+            for i in range(n):
+                log.append(_viol(f"t{i}"))
+            root = log.root()
+            for i in range(n):
+                proof = log.inclusion_proof(i)
+                self.assertTrue(
+                    verify_inclusion(proof.leaf_hash, proof, root),
+                    f"inclusion proof failed for n={n} leaf={i}",
+                )
+
     def test_consistency_prefix_root_matches(self):
         records = [_viol(t) for t in ["a", "b", "c", "d"]]
         old = records[:2]

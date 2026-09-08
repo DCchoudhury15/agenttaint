@@ -1,4 +1,4 @@
-"""AgentTaint core: the formal, substrate-independent model.
+"""AgentWard core: the formal, substrate-independent model.
 
 The core package holds the mathematical anchor shared with AgentRaft
 (arXiv:2603.07557): the Data Over-Exposure (DOE) definition. It depends on no

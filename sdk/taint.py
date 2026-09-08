@@ -30,6 +30,7 @@ demonstrates this.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -39,16 +40,18 @@ from opentelemetry import baggage
 
 from core.doe import Sensitivity
 
+logger = logging.getLogger("agentward.sdk")
+
 # Baggage keys (W3C baggage is a flat string→string map; keep keys short).
 KEY_ID = "taint.id"
 KEY_CLASSES = "taint.classes"
 KEY_LEVEL = "taint.level"
 
 # Span attribute prefixes (materialized on spans for SigNoz filtering).
-ATTR_ID = "agenttaint.taint.id"
-ATTR_CLASSES = "agenttaint.taint.classes"
-ATTR_LEVEL = "agenttaint.taint.level"
-ATTR_SENSITIVE = "agenttaint.sensitive"  # boolean, for cheap SigNoz filters
+ATTR_ID = "agentward.taint.id"
+ATTR_CLASSES = "agentward.taint.classes"
+ATTR_LEVEL = "agentward.taint.level"
+ATTR_SENSITIVE = "agentward.sensitive"  # boolean, for cheap SigNoz filters
 
 
 class TaintLevel(str, Enum):
@@ -140,20 +143,38 @@ class TaintLabel:
     def from_baggage(
         cls, bag: Mapping[str, str] | None
     ) -> "TaintLabel | None":
-        """Decode a taint label from a baggage map, or ``None`` if absent."""
+        """Decode a taint label from a baggage map, or ``None`` if absent.
+
+        Resilient to malformed baggage (a version-skewed peer, a hand-edited
+        header, transport corruption): an unrecognized class token is
+        dropped individually rather than invalidating the whole label, and
+        an unrecognized/missing level falls back to the level derived from
+        the (validated) classes instead of raising. This module's "safe
+        over-approximation" policy (see module docstring) means corrupt
+        input must never silently erase real taint or crash the caller --
+        either would defeat the enforcement this label exists for.
+        """
         if not bag:
             return None
         if KEY_CLASSES not in bag:
             return None
-        try:
-            classes = frozenset(
-                Sensitivity(c) for c in bag[KEY_CLASSES].split(",") if c
-            )
-        except ValueError:
-            return None
+        classes_seen: set[Sensitivity] = set()
+        for c in str(bag[KEY_CLASSES]).split(","):
+            if not c:
+                continue
+            try:
+                classes_seen.add(Sensitivity(c))
+            except ValueError:
+                logger.warning(
+                    "taint.from_baggage: dropping unrecognized taint class %r", c
+                )
+        classes = frozenset(classes_seen)
         if not classes:
             return None
-        level = TaintLevel(bag.get(KEY_LEVEL, TaintLevel.from_classes(classes).value))
+        try:
+            level = TaintLevel(bag[KEY_LEVEL])
+        except (KeyError, ValueError):
+            level = TaintLevel.from_classes(classes)
         return cls(
             id=bag.get(KEY_ID, uuid.uuid4().hex),
             classes=classes,

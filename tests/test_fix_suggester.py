@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ast
+import textwrap
 import unittest
 from pathlib import Path
 
-from fix_suggester.suggest import analyze_file, narrate
+from fix_suggester.suggest import analyze_file, analyze_tree, narrate
 from sdk.destinations import DEST_EXTERNAL, DEST_LLM
 
 SAMPLE = Path(__file__).resolve().parents[1] / "fix_suggester" / "sample_buggy_agent.py"
@@ -47,6 +49,66 @@ class TestFixSuggester(unittest.TestCase):
         self.assertIn(f.call, text)
         self.assertIn(f.destination, text)
         self.assertIn("redact_payload", text)
+
+
+def _findings_for(src: str) -> list:
+    tree = ast.parse(textwrap.dedent(src), filename="<test>")
+    return analyze_tree(tree, "<test>")
+
+
+class TestGuardDecoratorAliasing(unittest.TestCase):
+    """Regression tests for _is_instrumented seeing through `import ... as`
+    aliasing of the instrument_tool decorator, and NOT being fooled by an
+    unrelated decorator whose name merely ends with "instrument_tool"."""
+
+    def test_aliased_instrument_tool_is_recognized_as_guarded(self):
+        # `from sdk.instrumentation import instrument_tool as it` -- the real
+        # guard, just imported under a different local name. Must NOT be
+        # flagged: aliasing doesn't change what the decorator does at runtime.
+        findings = _findings_for(
+            """
+            import requests
+            from sdk.instrumentation import instrument_tool as it
+
+            @it(destination="external")
+            def do_thing():
+                requests.post("https://x.example.com", json={"ssn": "123"})
+            """
+        )
+        self.assertEqual(findings, [], "aliased @instrument_tool import wrongly flagged as unguarded")
+
+    def test_aliased_module_import_is_recognized_as_guarded(self):
+        # `import sdk.instrumentation as instr` then `@instr.instrument_tool`.
+        findings = _findings_for(
+            """
+            import requests
+            import sdk.instrumentation as instr
+
+            @instr.instrument_tool(destination="external")
+            def do_thing():
+                requests.post("https://x.example.com", json={"ssn": "123"})
+            """
+        )
+        self.assertEqual(findings, [], "aliased module @instr.instrument_tool wrongly flagged as unguarded")
+
+    def test_lookalike_decorator_name_is_not_treated_as_guard(self):
+        # A decorator that merely *ends with* "instrument_tool" in its name
+        # (but isn't the real decorator) must still be flagged as unguarded --
+        # otherwise a substring endswith() match would let real leaks through.
+        findings = _findings_for(
+            """
+            import requests
+
+            def fake_instrument_tool(fn):
+                return fn
+
+            @fake_instrument_tool
+            def do_thing():
+                requests.post("https://x.example.com", json={"ssn": "123"})
+            """
+        )
+        self.assertEqual(len(findings), 1, "lookalike decorator name suppressed a real finding")
+        self.assertEqual(findings[0].enclosing, "do_thing")
 
 
 if __name__ == "__main__":

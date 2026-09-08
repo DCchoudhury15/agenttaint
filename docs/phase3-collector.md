@@ -14,7 +14,7 @@ Rather than rebuild SigNoz's forked collector, a minimal **sidecar collector**
 sits between the SDK and SigNoz:
 
 ```
-SDK  --OTLP/HTTP :4319-->  agenttaint-collector
+SDK  --OTLP/HTTP :4319-->  agentward-collector
                              [otlp receiver]
                                     |
                              [taint_policy processor]  <-- Rego eval + redact
@@ -25,7 +25,7 @@ SDK  --OTLP/HTTP :4319-->  agenttaint-collector
 ```
 
 - SDK `configure_tracing(endpoint=http://localhost:4319/v1/traces)`.
-- `AGENTTAINT_MASK_IN_SDK=0` makes the SDK send **raw** tool I/O to the trusted
+- `AGENTWARD_MASK_IN_SDK=0` makes the SDK send **raw** tool I/O to the trusted
   local sidecar, and the **collector** applies Rego and redacts before SigNoz
   stores anything. (With the flag on, the SDK masks in-process instead, which
   is the Phase 2 backstop for when no sidecar is present.)
@@ -45,7 +45,7 @@ SDK  --OTLP/HTTP :4319-->  agenttaint-collector
 - `collector/processor/taintpolicy/` (Go module, processor v1.66.0 + OPA):
   - embeds the policy (`//go:embed`), runs `rego.PrepareForEval` at startup
     (compile once, eval many), calls `EvalInput(spanAttrs)` per span.
-  - writes collector-authoritative `agenttaint.policy.*` attrs:
+  - writes collector-authoritative `agentward.policy.*` attrs:
     `redacted`, `violation`, `transfer_violation`, `violations` (JSON),
     `reasons`, `decision_engine=rego`.
   - redacts raw PII from span string attrs (SSN, AWS key, GitHub token,
@@ -54,7 +54,7 @@ SDK  --OTLP/HTTP :4319-->  agenttaint-collector
   - forwards to the next consumer (the `next consumer.Traces` from the factory).
   - `MutatesData=true`; runs before `batch`.
 - `collector/builder.yaml` (ocb manifest) + `collector/config.yaml` (runtime).
-  Built with `ocb` (builder v0.160.0) into `collector/bin/agenttaint-collector`.
+  Built with `ocb` (builder v0.160.0) into `collector/bin/agentward-collector`.
 
 ## Verified in SigNoz (breach run, SDK mask off)
 
@@ -69,7 +69,7 @@ SDK  --OTLP/HTTP :4319-->  agenttaint-collector
 
 **Redaction proof:** the SDK sent `ask_llm`'s output with raw `"ssn":
 "234-12-1234"`; the collector masked it to `"ssn": "[PII]"` before storage
-(`agenttaint.policy.decision_engine=rego`, `redacted=true`). `query_db` shows
+(`agentward.policy.decision_engine=rego`, `redacted=true`). `query_db` shows
 both `"ssn": "[PII]"` and `"deploy_key": "[SECRET]"`. **Zero raw SSN/AWS
 values anywhere** in the stored hr_bot spans.
 

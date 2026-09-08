@@ -29,14 +29,14 @@ from evidence.recorder import record_violations
 
 
 def main() -> int:
-    log_path = Path(tempfile.gettempdir()) / "agenttaint_phase5_demo.logl"
+    log_path = Path(tempfile.gettempdir()) / "agentward_phase5_demo.logl"
     if log_path.exists():
         log_path.unlink()
     log = MerkleLog(log_path)
 
     print("=== recording recent collector violations from SigNoz ===")
     try:
-        n = record_violations(log, service="agenttaint-hr-bot", since_minutes=60)
+        n = record_violations(log, service="agentward-hr-bot", since_minutes=60)
     except Exception as e:
         print(f"could not read ClickHouse (is SigNoz up? run a breach first?): {e}")
         # fall back to synthetic records so the demo still proves the crypto

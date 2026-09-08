@@ -10,19 +10,37 @@ baggage propagation keep the taint alive, or do we need AgentRaft's Φ
 The LLM backend is **pluggable**:
 
 * a deterministic stub with three modes: ``passthrough`` (verbatim),
-  ``reformat`` (strip dashes to get "234121234", which Presidio's US_SSN regex
-  no longer matches), ``summarize`` (drop the value entirely: "the employee's
-  record"). This lets us deterministically test each transformation case.
+  ``reformat`` (strip dashes, notionally "234121234" so Presidio's US_SSN
+  regex no longer matches), ``summarize`` (drop the value entirely: "the
+  employee's record"). This lets us deterministically test each
+  transformation case.
 * the real OpenAI / Anthropic API, activated when ``OPENAI_API_KEY`` or
   ``ANTHROPIC_API_KEY`` is set. Pass ``--llm real`` and ``--provider``.
 
 Expected result (the thesis): the **call-chain taint (baggage)** survives every
 mode by construction, it's value-independent, so the ``external_api`` sink is
-flagged as a violation in all three. The **field-level re-detection** catches
-``passthrough`` and (maybe) ``reformat`` but not ``summarize``. The residual
-gap is PII transformed into a non-detectable form that nonetheless travels
-semantically, exactly where Φ would be needed (Phase 6 fall-back), but for
-*enforcement* the chain-level flag is a safe over-approximation: flag the sink.
+flagged as a violation in all three. Verified empirically for all three stub
+modes: ``agentward.violation=true`` fires on both ``llm_rephrase`` and
+``external_api`` every time (see ``--console`` output).
+
+NOTE on the field-level claim above (Phase 2 vs. present code): since Phase 4
+added the egress redaction gate, ``llm_rephrase``'s ``record`` argument is
+ALREADY masked to literal ``"[PII]"``/``"[SECRET]"`` tokens by
+``instrument_tool`` *before* this function body ever runs (any DEST_LLM /
+DEST_EXTERNAL / DEST_LOG tool call is redacted on input, unconditionally,
+regardless of ``AGENTWARD_MASK_IN_SDK`` -- verified: even with
+``AGENTWARD_MASK_IN_SDK=0`` the ``reformat`` stub's ``ssn.replace('-', '')``
+runs on the string ``"[PII]"``, not on a raw SSN). So none of the three stub
+modes ever actually sees or re-emits a raw, differently-reformatted SSN
+anymore, and the original "field-level re-detection catches passthrough and
+(maybe) reformat but not summarize" distinction no longer applies as
+described -- field-level detection has nothing raw left to catch in any mode.
+The residual gap Φ (LLM-judged semantic dependency) would cover is PII
+transformed into a non-detectable form that nonetheless travels semantically;
+that gap is now demonstrated at the SDK-redaction boundary rather than by
+these stubs, but the point still stands: chain-level taint is a value-
+independent, safe over-approximation, and it is what actually flags the sink
+in this demo, not per-value field re-detection.
 
 Run:
     python3 spike/llm_hop.py                 # stub, all three modes, -> SigNoz
@@ -152,7 +170,7 @@ def main() -> int:
     ap.add_argument("--llm", choices=["stub", "real"], default="stub")
     ap.add_argument("--provider", choices=["openai", "anthropic"],
                     default="openai")
-    ap.add_argument("--service", default="agenttaint-spike")
+    ap.add_argument("--service", default="agentward-spike")
     args = ap.parse_args()
 
     instr.configure_tracing(args.service, console=args.console)
@@ -176,8 +194,8 @@ def main() -> int:
               f"{r['chain_taint_at_sink']}")
     print("\nThesis check: external sink flagged as VIOLATION in every mode "
           "because chain-level taint (baggage) is value-independent.")
-    print("Inspect in SigNoz: service=agenttaint-spike, filter "
-          "agenttaint.violation=true")
+    print("Inspect in SigNoz: service=agentward-spike, filter "
+          "agentward.violation=true")
     return 0
 
 

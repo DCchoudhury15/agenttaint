@@ -28,8 +28,8 @@ cheaper) than asking a model to propose a free-form patch.
 - `fix_suggester/sample_buggy_agent.py`: a deliberately-leaky agent (raw
   `requests.post`, `openai.ChatCompletion.create`, a module-level
   `requests.put`, plus a safe internal helper) for the suggester to analyze.
-- **DLP simulation mode**: `AGENTTAINT_DRY_RUN=1` makes the SDK log the
-  violation (`agenttaint.dry_run=true`) WITHOUT redacting args, an audit/dry-run
+- **DLP simulation mode**: `AGENTWARD_DRY_RUN=1` makes the SDK log the
+  violation (`agentward.dry_run=true`) WITHOUT redacting args, an audit/dry-run
   mode for safe rollout (see what would be flagged before enforcing).
 - **RAG**: `rag_retrieve` is already masked at the SDK egress gate (Phase 4:
   rag goes to `[PII]`/`[SECRET]`, since embeddings are invertible, OWASP

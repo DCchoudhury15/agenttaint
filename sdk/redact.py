@@ -26,7 +26,7 @@ that encrypt to digits). This is FPE plus tokenization, the pair the plan allows
     or an audited FF1 lib, and pull the key from a secret manager, not an
     env var.
 
-The key (``AGENTTAINT_FPE_KEY``, 128/192/256-bit hex) must be kept secret.
+The key (``AGENTWARD_FPE_KEY``, 128/192/256-bit hex) must be kept secret.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class Redactor:
     """Destination-aware redactor: reversible FPE token for internal, mask elsewhere."""
 
     def __init__(self, key_hex: str | None = None, tweak_hex: str = _DEFAULT_TWEAK):
-        self.key = key_hex or os.environ.get("AGENTTAINT_FPE_KEY") or _DEFAULT_DEMO_KEY
+        self.key = key_hex or os.environ.get("AGENTWARD_FPE_KEY") or _DEFAULT_DEMO_KEY
         self.tweak = tweak_hex
         self._ciphers: dict[int, FF3Cipher] = {}
         self._vault: dict[str, str] = {}  # token -> exact original (in-process, demo)
@@ -101,13 +101,33 @@ class Redactor:
         return "".join(result)
 
     def _fpe_decrypt(self, token: str) -> str | None:
-        """Reverse _fpe_encrypt structurally (lowercase). Used only as a fallback
-        when the vault misses (e.g. a token from a prior process)."""
+        """Reverse _fpe_encrypt structurally. Used only as a fallback when the
+        vault misses (e.g. a token from a prior process).
+
+        Restricted to digit-only (radix 10) tokens. _fpe_encrypt lowercases
+        the alphabet before encrypting a radix-36 (alnum) value, so the
+        original letter case of an alnum token is *not* recoverable from the
+        ciphertext alone -- without the vault, guessing radix 36 here would
+        silently return a case-mangled value (e.g. "EMP4521XQ" -> "emp4521xq")
+        instead of the exact original, breaking the "reversal is exact"
+        guarantee without so much as an error. Digit-only tokens have no case
+        to lose, so they remain safe to decrypt structurally; anything with a
+        letter in it, we refuse rather than guess.
+
+        Note this is still not airtight: a radix-36 value can, by chance,
+        encrypt to an all-digit token indistinguishable from a genuine
+        radix-10 token, in which case this fallback decrypts it with the
+        wrong cipher and returns a confident-looking but wrong value. That
+        residual ambiguity is inherent to inferring the radix from the
+        ciphertext's own characters and cannot be closed without persisting
+        the original radix alongside the token (e.g. in the vault, or a
+        prefix on the token) -- out of scope for this fallback path.
+        """
         radix = _radix_for(token)
-        if radix is None:
+        if radix != 10:
             return None
         positions = [m.start() for m in _ALPHA_RE.finditer(token)]
-        alpha = "".join(token[i] for i in positions).lower()
+        alpha = "".join(token[i] for i in positions)
         try:
             dec = self._cipher(radix).decrypt(alpha)
         except Exception:
@@ -171,7 +191,7 @@ class Redactor:
             return None
         if token in self._vault:
             return self._vault[token]
-        return self._fpe_decrypt(token)  # fallback for digit-only tokens
+        return self._fpe_decrypt(token)  # fallback, restricted to digit-only tokens
 
     def is_reversible(self, destination: str) -> bool:
         return destination in _REVERSIBLE_SINKS

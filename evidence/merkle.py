@@ -1,17 +1,30 @@
-"""Tamper-evident Merkle log of AgentTaint violations.
+"""Tamper-evident Merkle log of AgentWard violations.
 
 Each violation the collector's Rego policy flags is appended as a leaf. The
 log is a Merkle (binary hash) tree over SHA-256, persisted as an append-only
 file of leaf records plus a rolling root. This turns the lineage/blast-radius
 dashboards from "metrics" into **cryptographically verifiable** GDPR Art. 30 /
-Art. 15 evidence: anyone can prove a given violation is in the log (inclusion)
-and that the log hasn been tampered with (consistency), in O(log n).
+Art. 15 evidence: anyone can prove a given violation is in the log (inclusion,
+via an O(log n) sibling-hash audit path) and that the log has not been
+tampered with or reordered (consistency, via ``verify_log_consistency``,
+which recomputes both roots from the full record lists it is given - O(n),
+not an O(log n) audit-path proof, but exact).
 
 Design (Crosby-Wallach / Certificate-Transparency style):
   leaf_hash(i)  = SHA256(0x00 || canonical_json(record_i))
-  parent_hash   = SHA256(0x01 || left || right)      # sorted so order-independent
+  parent_hash   = SHA256(0x01 || left || right)      # ORDERED, not sorted -
+                                                       # this is what makes
+                                                       # reordering detectable
   inclusion proof for leaf i = the sibling hashes on the path to the root
   consistency proof (new root from old root) = the subtree heads that changed
+
+An odd node at any level is carried up to the next level *unchanged* rather
+than being paired with a duplicate of itself. Self-pairing an odd node
+(``SHA256(0x01 || C || C)``) is the classic Merkle bug (CVE-2012-2459 in
+Bitcoin): it makes the root of an n-leaf tree collide with the root of an
+(n+1)-leaf tree formed by appending a duplicate of the last leaf, so an
+attacker (or a buggy retry) can insert a record into the log without moving
+the root at all. Carrying the odd node up unhashed avoids that collision.
 
 The append-only file stores one JSON record per line (the leaf content); the
 tree is rebuilt from the file on load. A separate small manifest could persist
@@ -44,17 +57,42 @@ def _hash_parent(left: bytes, right: bytes) -> bytes:
     return hashlib.sha256(b"\x01" + left + right).digest()
 
 
+def _next_level(level: list[bytes]) -> list[bytes]:
+    """Combine one tree level into the next: pair adjacent nodes; an unpaired
+    trailing node (odd-length level) is carried up *unchanged*, never paired
+    with a duplicate of itself (see module docstring: CVE-2012-2459)."""
+    nxt: list[bytes] = []
+    n = len(level)
+    i = 0
+    while i < n:
+        if i + 1 < n:
+            nxt.append(_hash_parent(level[i], level[i + 1]))
+            i += 2
+        else:
+            nxt.append(level[i])  # odd one out: promote unchanged
+            i += 1
+    return nxt
+
+
 @dataclass
 class InclusionProof:
     leaf_index: int
     leaf_hash: bytes
     siblings: list[bytes] = field(default_factory=list)  # ordered rootward
+    # directions[i] is True iff siblings[i] sits to the *right* of the
+    # accumulated hash at that step (False = sibling on the left). Stored
+    # explicitly (rather than re-derived from leaf_index parity at verify
+    # time) because odd levels can be skipped (see _next_level), so parity
+    # of leaf_index alone is not enough to reconstruct which side a sibling
+    # was on.
+    directions: list[bool] = field(default_factory=list)
 
     def to_json(self) -> str:
         return json.dumps({
             "leaf_index": self.leaf_index,
             "leaf_hash": self.leaf_hash.hex(),
             "siblings": [s.hex() for s in self.siblings],
+            "directions": self.directions,
         })
 
     @classmethod
@@ -64,6 +102,7 @@ class InclusionProof:
             leaf_index=d["leaf_index"],
             leaf_hash=bytes.fromhex(d["leaf_hash"]),
             siblings=[bytes.fromhex(x) for x in d["siblings"]],
+            directions=list(d.get("directions", [])),
         )
 
 
@@ -119,37 +158,34 @@ class MerkleLog:
             return hashlib.sha256(b"").digest()
         level = list(self._leaves)
         while len(level) > 1:
-            nxt = []
-            for i in range(0, len(level), 2):
-                left = level[i]
-                right = level[i + 1] if i + 1 < len(level) else left  # duplicate odd
-                nxt.append(_hash_parent(left, right))
-            level = nxt
+            level = _next_level(level)
         return level[0]
 
     def inclusion_proof(self, leaf_index: int) -> InclusionProof:
         if not 0 <= leaf_index < len(self._leaves):
             raise IndexError(leaf_index)
         siblings: list[bytes] = []
+        directions: list[bool] = []
         idx = leaf_index
         level = list(self._leaves)
         while len(level) > 1:
-            # sibling is the other child of the pair; odd last duplicates itself
+            n = len(level)
             if idx % 2 == 0:
-                sib_idx = idx + 1 if idx + 1 < len(level) else idx
+                if idx + 1 < n:
+                    siblings.append(level[idx + 1])
+                    directions.append(True)  # sibling on the right
+                # else: idx is the unpaired trailing node at this level; it is
+                # promoted unchanged (see _next_level) so there is no sibling
+                # to record and no hash combination happens at this level.
             else:
-                sib_idx = idx - 1
-            siblings.append(level[sib_idx])
-            nxt = []
-            for i in range(0, len(level), 2):
-                left = level[i]
-                right = level[i + 1] if i + 1 < len(level) else left
-                nxt.append(_hash_parent(left, right))
-            level = nxt
+                siblings.append(level[idx - 1])
+                directions.append(False)  # sibling on the left
+            level = _next_level(level)
             idx //= 2
         return InclusionProof(leaf_index=leaf_index,
                               leaf_hash=self._leaves[leaf_index],
-                              siblings=siblings)
+                              siblings=siblings,
+                              directions=directions)
 
     def record(self, leaf_index: int) -> dict:
         return self._records[leaf_index]
@@ -158,16 +194,19 @@ class MerkleLog:
 def verify_inclusion(leaf_hash: bytes, proof: InclusionProof, root: bytes) -> bool:
     """Verify that ``leaf_hash`` is in the log whose root is ``root``.
 
-    Rebuild the path from the leaf upward using the proof's sibling hashes.
+    Rebuild the path from the leaf upward using the proof's sibling hashes,
+    combining on the side recorded in ``proof.directions`` (not re-derived
+    from ``leaf_index`` parity, since odd tree levels can skip a combination
+    step entirely - see ``_next_level``).
     """
+    if len(proof.siblings) != len(proof.directions):
+        return False
     h = leaf_hash
-    idx = proof.leaf_index
-    for sib in proof.siblings:
-        if idx % 2 == 0:
+    for sib, sibling_is_right in zip(proof.siblings, proof.directions):
+        if sibling_is_right:
             h = _hash_parent(h, sib)
         else:
             h = _hash_parent(sib, h)
-        idx //= 2
     return h == root
 
 

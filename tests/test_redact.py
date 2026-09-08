@@ -89,6 +89,42 @@ class TestRedaction(unittest.TestCase):
         tok = self.r.redact_value(AWS, Sensitivity.SECRET, instr.DEST_LOG)
         self.assertEqual(tok, "[SECRET]")
 
+    def test_cross_process_digit_only_token_reverses_correctly(self):
+        # Two independent Redactor instances (e.g. two worker processes) with
+        # no shared vault: FF3 is deterministic, so a digit-only (radix 10)
+        # token from process A can be structurally decrypted by process B's
+        # _fpe_decrypt fallback with no case-loss risk (digits have no case).
+        proc_a = Redactor()
+        tok = proc_a.redact_value(SSN, Sensitivity.PII, instr.DEST_INTERNAL)
+        proc_b = Redactor()  # fresh instance, empty vault
+        self.assertEqual(proc_b.reverse(tok), SSN)
+
+    def test_cross_process_alnum_token_fails_closed_not_case_mangled(self):
+        # Regression for a real gap: _fpe_encrypt lowercases the alphabet
+        # before running FF3 (radix 36), so an alnum token's original letter
+        # case only lives in the vault, never in the token's own characters.
+        # Before the fix, the vault-miss fallback (_fpe_decrypt) still tried
+        # to structurally decrypt radix-36 tokens and silently returned a
+        # case-mangled value (e.g. "EMP4521XQ" -> "emp4521xq") that looked
+        # like a valid reversal but was NOT the exact original -- a silent
+        # violation of the "reversal is exact" guarantee. It must now fail
+        # closed (None) instead of returning a wrong-but-plausible value.
+        alnum = "EMP4521XQ"
+        proc_a = Redactor()
+        tok = proc_a.redact_value(alnum, Sensitivity.SECRET, instr.DEST_INTERNAL)
+        self.assertNotEqual(tok, alnum.lower())  # sanity: token really differs
+        proc_b = Redactor()  # fresh instance, empty vault -> vault miss
+        result = proc_b.reverse(tok)
+        self.assertIsNone(result)  # fail closed, not a case-mangled guess
+        self.assertNotEqual(result, alnum.lower())
+
+    def test_same_process_alnum_reversal_still_exact(self):
+        # The fix only restricts the cross-process *fallback*; same-process
+        # reversal (vault hit) must still be exact, case included.
+        alnum = "EMP4521XQ"
+        tok = self.r.redact_value(alnum, Sensitivity.SECRET, instr.DEST_INTERNAL)
+        self.assertEqual(self.r.reverse(tok), alnum)
+
 
 if __name__ == "__main__":
     unittest.main()

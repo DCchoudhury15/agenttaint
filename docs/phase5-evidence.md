@@ -25,7 +25,7 @@ record.
   - `violation_record(...)`: a non-sensitive leaf shape (ids, taint classes,
     policy reasons, never raw values).
 - `evidence/recorder.py`: `record_violations(log, service, since_minutes)`
-  queries SigNoz/ClickHouse for spans with `agenttaint.policy.violation=1`
+  queries SigNoz/ClickHouse for spans with `agentward.policy.violation=1`
   (JSONEachRow via `docker exec clickhouse-client`) and appends each as a leaf.
 - `evidence/log.py`: a CLI with `record` / `root` / `prove <i>` / `verify
   <json>` / `count`.

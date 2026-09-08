@@ -1,7 +1,7 @@
 """Record collector-policy violations from SigNoz/ClickHouse into the Merkle log.
 
 This is the wire from the policy decision (Phase 3 collector) to the evidence
-layer (Phase 5): every span the collector flagged ``agenttaint.policy.violation``
+layer (Phase 5): every span the collector flagged ``agentward.policy.violation``
 becomes a leaf in the tamper-evident log, turning the violation into
 cryptographically verifiable GDPR Art. 30/15 evidence.
 
@@ -13,6 +13,7 @@ JSONEachRow so the records parse cleanly.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -29,20 +30,34 @@ TABLE = "distributed_signoz_index_v3"
 _QUERY = """
 SELECT
     trace_id, span_id, name AS tool,
-    attributes_string['agenttaint.destination'] AS destination,
-    attributes_string['agenttaint.jurisdiction'] AS jurisdiction,
-    attributes_string['agenttaint.taint.classes'] AS classes,
-    attributes_string['agenttaint.policy.reasons'] AS reasons,
+    attributes_string['agentward.destination'] AS destination,
+    attributes_string['agentward.jurisdiction'] AS jurisdiction,
+    attributes_string['agentward.taint.classes'] AS classes,
+    attributes_string['agentward.policy.reasons'] AS reasons,
     toInt64(toUnixTimestamp64Nano(timestamp)) AS timestamp_ns
 FROM {db}.{tbl}
 WHERE serviceName = '{svc}'
-  AND attributes_bool['agenttaint.policy.violation'] = 1
+  AND attributes_bool['agentward.policy.violation'] = 1
   AND timestamp > now() - INTERVAL {mins} MINUTE
 FORMAT JSONEachRow
 """
 
 
+# OTel service names are conventionally DNS/identifier-like; this is
+# deliberately restrictive rather than trying to enumerate every character
+# that would need escaping in a ClickHouse string literal.
+_SAFE_SERVICE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
 def _query_clickhouse(service: str, since_minutes: int) -> list[dict]:
+    # `service` and `since_minutes` are interpolated directly into the SQL
+    # text below (clickhouse-client has no server-side parameter binding
+    # over `docker exec ... -q`), so validate both strictly first - an
+    # unescaped `service` value (e.g. containing a `'`) would otherwise let
+    # a caller break out of the string literal and inject arbitrary SQL.
+    if not _SAFE_SERVICE_RE.match(service):
+        raise ValueError(f"unsafe service name: {service!r}")
+    since_minutes = int(since_minutes)  # raises if not int-like; blocks injection via this field too
     q = _QUERY.format(db=DATABASE, tbl=TABLE, svc=service, mins=since_minutes)
     proc = subprocess.run(
         ["docker", "exec", CONTAINER, "clickhouse-client", "-q", q],
@@ -54,7 +69,7 @@ def _query_clickhouse(service: str, since_minutes: int) -> list[dict]:
     return rows
 
 
-def record_violations(log: MerkleLog, *, service: str = "agenttaint-hr-bot",
+def record_violations(log: MerkleLog, *, service: str = "agentward-hr-bot",
                       since_minutes: int = 5) -> int:
     """Append every recent collector violation to ``log``. Returns the count."""
     rows = _query_clickhouse(service, since_minutes)

@@ -1,4 +1,4 @@
-"""Formal Data Over-Exposure (DOE) model: the mathematical anchor for AgentTaint.
+"""Formal Data Over-Exposure (DOE) model: the mathematical anchor for AgentWard.
 
 Implements the definition from AgentRaft (arXiv:2603.07557, Lin et al., 2026)::
 
@@ -14,7 +14,7 @@ where
               intended by the user nor required by the sink
 
 AgentRaft computes these sets offline from a custom agent-trace format and
-judges ``D_nec`` with a multi-LLM voting committee. AgentTaint computes the
+judges ``D_nec`` with a multi-LLM voting committee. AgentWard computes the
 *same* sets at runtime from OpenTelemetry spans and judges ``D_nec`` with a
 deterministic Rego policy (see ``collector/policy/``). The formal model is
 identical; this module is the shared anchor and is unit-tested against the
