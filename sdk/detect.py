@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from typing import Iterable, Mapping
 
 from core.doe import Sensitivity
@@ -138,6 +139,34 @@ def _classify(entity_type: str) -> Sensitivity:
     return Sensitivity.PII
 
 
+# Zero-width / invisible characters someone could slip between the digits of
+# an SSN etc. to dodge a plain regex without changing how the text looks when
+# rendered.
+_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u2060\ufeff"
+
+
+def _normalize_for_detection(text: str) -> tuple[str, list[int]]:
+    """NFKC-fold the text (fullwidth Unicode digits, etc. collapse to plain
+    ASCII) and strip zero-width characters, so a homoglyph or an invisible
+    character doesn't let sensitive data slip past the regex/NER recognizers.
+
+    Returns the normalized text plus a map from each of its character
+    positions back to the matching position in the original text, so
+    detection offsets can still be spliced against the original string by
+    ``mask_text``/``redact_text`` (NFKC-folding a fullwidth digit is 1:1 on
+    length; dropping zero-width characters is what the map is actually for).
+    """
+    text = unicodedata.normalize("NFKC", text)
+    kept_chars: list[str] = []
+    position_map: list[int] = []
+    for i, ch in enumerate(text):
+        if ch in _ZERO_WIDTH_CHARS:
+            continue
+        kept_chars.append(ch)
+        position_map.append(i)
+    return "".join(kept_chars), position_map
+
+
 def detect_text(text: str, *, threshold: float = 0.5) -> list[Detection]:
     """Detect sensitive spans in ``text``. Returns [] if none / on error.
 
@@ -147,13 +176,14 @@ def detect_text(text: str, *, threshold: float = 0.5) -> list[Detection]:
     """
     if not text:
         return []
+    normalized, position_map = _normalize_for_detection(text)
     try:
         analyzer = _get_analyzer()
     except Exception:  # spaCy model missing, etc.
         return []
     try:
         results = analyzer.analyze(
-            text=text,
+            text=normalized,
             language="en",
             score_threshold=threshold,
             return_decision_process=False,
@@ -165,13 +195,19 @@ def detect_text(text: str, *, threshold: float = 0.5) -> list[Detection]:
         sens = _classify(r.entity_type)
         if not sens.is_sensitive:
             continue
+        # Map normalized-text offsets back to the original text's offsets.
+        start = position_map[r.start] if r.start < len(position_map) else len(text)
+        if r.end > r.start and r.end - 1 < len(position_map):
+            end = position_map[r.end - 1] + 1
+        else:
+            end = start
         out.append(Detection(
             entity_type=r.entity_type,
-            start=r.start,
-            end=r.end,
+            start=start,
+            end=end,
             score=r.score,
             sensitivity=sens,
-            fingerprint=fingerprint(text[r.start:r.end]),
+            fingerprint=fingerprint(text[start:end]),
         ))
     return out
 
