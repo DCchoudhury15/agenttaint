@@ -31,6 +31,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import threading
 from typing import Any, Callable, Mapping
 
 from opentelemetry import baggage, context as context_api, trace
@@ -237,47 +238,63 @@ def instrument_tool(
 # Run scoping: one trace per run, clean taint slate per run
 # ---------------------------------------------------------------------------
 
-_ATTACH_TOKENS: list = []   # context_api.attach tokens, for end_run reset
-_ROOT_SPANS: list = []      # root spans to end on end_run
+# Per-thread bookkeeping, NOT plain module-level lists. A context_api.attach
+# token can only be detached on the same OS thread that created it (it's tied
+# to that thread's own contextvars Context); with shared globals, concurrent
+# begin_run()/end_run() calls on different threads clobbered each other's
+# lists, dropping most root spans and raising "Failed to detach context ...
+# was created in a different Context". threading.local() gives every thread
+# its own attach_tokens/root_spans so concurrent runs no longer collide.
+_run_state = threading.local()
+
+
+def _run_lists() -> tuple[list, list]:
+    if not hasattr(_run_state, "attach_tokens"):
+        _run_state.attach_tokens = []
+        _run_state.root_spans = []
+    return _run_state.attach_tokens, _run_state.root_spans
 
 
 def begin_run(name: str = "agent.run") -> object:
     """Start a run: attach a root span as current so every tool span in the
     run shares one trace, and reset the taint slate. Pair with ``end_run()``.
     """
-    _ATTACH_TOKENS.clear()
-    _ROOT_SPANS.clear()
+    attach_tokens, root_spans = _run_lists()
+    attach_tokens.clear()
+    root_spans.clear()
     tracer = trace.get_tracer("agenttaint")
     root = tracer.start_span(name, kind=trace.SpanKind.INTERNAL)
-    _ROOT_SPANS.append(root)
+    root_spans.append(root)
     tok = context_api.attach(trace.set_span_in_context(root))
-    _ATTACH_TOKENS.append(tok)
+    attach_tokens.append(tok)
     return root
 
 
 def end_run() -> None:
     """End a run: detach all frames added during the run (clearing taint) and
     end the root span(s)."""
-    for tok in reversed(_ATTACH_TOKENS):
+    attach_tokens, root_spans = _run_lists()
+    for tok in reversed(attach_tokens):
         try:
             context_api.detach(tok)
         except Exception:
             pass
-    _ATTACH_TOKENS.clear()
-    for root in _ROOT_SPANS:
+    attach_tokens.clear()
+    for root in root_spans:
         try:
             root.end()
         except Exception:
             pass
-    _ROOT_SPANS.clear()
+    root_spans.clear()
 
 
 def _attach_outgoing(label: tnt.TaintLabel) -> None:
     """Attach an outgoing taint label to the ambient context (frame leaks
     forward within the run by design); record the token for ``end_run``."""
+    attach_tokens, _ = _run_lists()
     ctx = tnt.attach(label)  # base = current ambient; adds baggage
     tok = context_api.attach(ctx)
-    _ATTACH_TOKENS.append(tok)
+    attach_tokens.append(tok)
 
 
 def current_taint() -> tnt.TaintLabel | None:
